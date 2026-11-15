@@ -1,0 +1,107 @@
+/**
+ * Токены. Сырые цвета существуют ТОЛЬКО здесь (принцип 5, ~/.dsh/rules/architecture.md).
+ * В компонентах — только var(--…). Сырой #hex в компоненте = ошибка ревью.
+ *
+ * Палитра снята с референса (фото 1): латте-золото на тёмном орехе.
+ * Один акцент: золото живёт только на тёмном, тёмно-медный — только на бумаге.
+ *
+ * После любой правки: npm run contrast — пары ниже нормы не проходят проверку.
+ * Нормы: текст ≥ 4.5:1, границы интерактивных полей ≥ 3:1 (WCAG 1.4.11).
+ */
+
+:root {
+  color-scheme: dark;
+
+  /* --- примитивы: сырые значения, без семантики --- */
+  --paper: #f2eadc;
+  --ink: #12100d;
+  --ink-2: #1a1611;
+  --ink-3: #241e17;
+  --mist: #e7ded0;
+  --muted: #5c5348; /* вторичный текст на светлом */
+  --muted-d: #a79c8c; /* вторичный текст на тёмном */
+  --accent: #d8a24a; /* золото: заливка и акцент на тёмном */
+  --accent-d: #8c4e16; /* тёмно-медный: акцент на светлом */
+  --on-accent: #171310;
+  --line: #8b7f6c; /* границы интерактивных полей: норма 3:1 */
+  --hairline: #2a241c; /* декоративные линии на тёмном */
+  --hairline-p: #d9cfbe; /* декоративные линии на бумаге */
+
+  /* --- типографика и ритм --- */
+  --font-display: 'Inter Tight', 'Inter Tight Fallback', system-ui, sans-serif;
+  --font-text: 'Inter', 'Inter Fallback', system-ui, sans-serif;
+  --font-mono: 'JetBrains Mono', ui-monospace, 'Cascadia Mono', monospace;
+
+  --fs-display: clamp(2.75rem, 5.1vw, 4.5rem);
+  --fs-h2: clamp(1.9rem, 3.4vw, 3.1rem);
+  --fs-h3: 1.1875rem;
+  --fs-body: 1.0625rem;
+  --fs-lead: clamp(1.0625rem, 1.05vw, 1.1875rem);
+  --fs-mono: 0.6875rem;
+  --fs-mono-l: 0.75rem;
+
+  --container: 1280px;
+  --pad: clamp(20px, 4vw, 40px);
+  --gutter: 24px;
+  --rail: 92px;
+  --sec-pad: clamp(76px, 10vw, 168px);
+  --radius: 2px;
+
+  /* --- движение --- */
+  --ease-out: cubic-bezier(0.22, 1, 0.36, 1);
+  --ease-in-out: cubic-bezier(0.77, 0, 0.175, 1);
+  --ease-swift: cubic-bezier(0.2, 0.9, 0.1, 1);
+  --dur-1: 160ms;
+  --dur-2: 240ms;
+  --dur-3: 420ms;
+  --dur-4: 700ms;
+
+  /* --- умолчания поверхности: чернила --- */
+  --bg: var(--ink);
+  --fg: var(--paper);
+  --fg-muted: var(--muted-d);
+  --accent-text: var(--accent-d);
+  --focus: var(--accent);
+  --rule: var(--hairline);
+}
+
+/**
+ * Поверхности: секция объявляет surface-*, семантика переключается здесь,
+ * а не на каждой кнопке внутри секции.
+ *
+ * <section class="surface-ink"> → внутри работают var(--bg), var(--fg), var(--fg-muted).
+ */
+.surface-paper {
+  --bg: var(--paper);
+  --fg: var(--ink);
+  --fg-muted: var(--muted);
+  --accent-text: var(--accent-d);
+  --focus: var(--accent-d);
+  --rule: var(--hairline-p);
+}
+
+.surface-mist {
+  --bg: var(--mist);
+  --fg: var(--ink);
+  --fg-muted: var(--muted);
+  --accent-text: var(--accent-d);
+  --focus: var(--accent-d);
+  --rule: var(--hairline-p);
+}
+
+.surface-ink {
+  --bg: var(--ink);
+  --fg: var(--paper);
+  --fg-muted: var(--muted-d);
+  --accent-text: var(--accent);
+  --focus: var(--accent);
+  --rule: var(--hairline);
+}
+
+/* Поверхность применяет свои токены к себе */
+.surface-paper,
+.surface-mist,
+.surface-ink {
+  background: var(--bg);
+  color: var(--fg);
+}

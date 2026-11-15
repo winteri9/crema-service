@@ -1,0 +1,248 @@
+---
+/**
+ * Секция 01 — первый экран. Источник текста: src/data/hero.ts.
+ *
+ * Композиция: типографика на чернилах слева, машина в интерьере справа.
+ * Фото выступает фоном сайта (бриф) и эталоном света для 3D-сцены (фаза 3),
+ * поэтому кадр не перекрывается текстом — левый край уходит в чернила градиентом.
+ */
+import Nav from '../Nav.astro';
+import Cta from '../Cta.astro';
+import Arrow from '../Arrow.astro';
+import { HERO } from '../../data/hero';
+import { CONTACTS } from '../../data/site';
+---
+
+<header class="hero" id="top">
+  <div class="shell hero__shell">
+    <Nav />
+
+    <div class="hero__media">
+      <img
+        src={`${import.meta.env.BASE_URL}img/hero.webp`}
+        width="1600"
+        height="1040"
+        alt="Кофемашина в интерьере кофейни: тёмное дерево, золото, латунь"
+        fetchpriority="high"
+        decoding="async"
+      />
+    </div>
+
+    <div class="hero__body">
+      <p class="mono hero__kicker">{HERO.kicker}</p>
+      <h1 class="display hero__title">{HERO.title}</h1>
+      <p class="hero__lead">{HERO.lead}</p>
+
+      <div class="hero__actions">
+        <Cta href={CONTACTS.telegram} label={HERO.cta} variant="solid" external />
+        <a class="hero__secondary" href={HERO.secondaryHref}>
+          <span>{HERO.secondary}</span>
+          <Arrow size={16} />
+        </a>
+      </div>
+    </div>
+
+    <ul class="mono hero__meta">
+      {HERO.meta.map((item) => <li>{item}</li>)}
+    </ul>
+  </div>
+</header>
+
+<style>
+  .hero {
+    position: relative;
+    overflow: clip;
+    background: transparent;
+  }
+
+  .hero__shell {
+    position: relative;
+    display: flex;
+    flex-direction: column;
+    min-height: 100svh;
+  }
+
+  /* --- кадр с машиной --- */
+  .hero__media {
+    position: absolute;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    left: 44%;
+    overflow: hidden;
+  }
+
+  .hero__media img {
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    object-position: 0% 44%;
+  }
+
+  /* левый и верхний край растворяются в чернилах — стыка не видно */
+  .hero__media::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--ink) 42%, transparent) 0%,
+      transparent 26%
+    );
+  }
+
+  /* низ уходит в чернила под строку с фактами */
+  .hero__media::after {
+    content: '';
+    position: absolute;
+    right: 0;
+    bottom: 0;
+    left: 0;
+    height: 28%;
+    background: linear-gradient(180deg, transparent, var(--ink));
+  }
+
+  /* скрим под текст: интерьер читается справа, слева — чернила */
+  .hero::after {
+    content: '';
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background: linear-gradient(
+      90deg,
+      color-mix(in srgb, var(--ink) 92%, transparent) 0%,
+      color-mix(in srgb, var(--ink) 78%, transparent) 30%,
+      color-mix(in srgb, var(--ink) 34%, transparent) 56%,
+      transparent 80%
+    );
+  }
+
+  /* --- текст --- */
+  .hero__body {
+    position: relative;
+    z-index: 1;
+    margin-top: auto;
+    max-width: 34rem;
+    padding-block: clamp(48px, 10vh, 112px) clamp(28px, 5vh, 52px);
+  }
+
+  .hero__kicker {
+    color: var(--accent);
+    margin-bottom: 24px;
+  }
+
+  .hero__title {
+    max-width: 7.4em;
+  }
+
+  .hero__lead {
+    margin-top: 30px;
+    max-width: 38ch;
+    font-size: var(--fs-lead);
+    color: var(--fg-muted);
+    text-wrap: pretty;
+  }
+
+  .hero__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px 32px;
+    margin-top: 38px;
+  }
+
+  .hero__secondary {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-mono);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-decoration: none;
+    color: var(--fg-muted);
+    transition: color var(--dur-1) var(--ease-out);
+  }
+
+  .hero__secondary :global(.arrow) {
+    transition: transform var(--dur-2) var(--ease-out);
+  }
+
+  .hero__secondary:hover,
+  .hero__secondary:focus-visible {
+    color: var(--fg);
+  }
+
+  .hero__secondary:hover :global(.arrow) {
+    transform: translateX(3px);
+  }
+
+  /* --- строка фактов внизу кадра --- */
+  .hero__meta {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    flex-wrap: wrap;
+    gap: 6px 22px;
+    padding-block: 20px 26px;
+    border-top: 1px solid color-mix(in srgb, var(--paper) 13%, transparent);
+  }
+
+  .hero__meta li {
+    position: relative;
+  }
+
+  .hero__meta li + li::before {
+    content: '';
+    position: absolute;
+    top: 50%;
+    left: -12px;
+    width: 3px;
+    height: 3px;
+    background: currentColor;
+    opacity: 0.5;
+    transform: translateY(-50%) rotate(45deg);
+  }
+
+  /* --- мобильная сборка: фото под шапкой, текст следом --- */
+  @media (max-width: 899px) {
+    .hero__shell {
+      min-height: 0;
+    }
+
+    .hero__media {
+      position: relative;
+      inset: auto;
+      height: 40svh;
+      margin-inline: calc(var(--pad) * -1);
+    }
+
+    .hero__media::before {
+      background: linear-gradient(
+        180deg,
+        color-mix(in srgb, var(--ink) 40%, transparent) 0%,
+        transparent 30%
+      );
+    }
+
+    .hero__body {
+      margin-top: 0;
+      max-width: none;
+      padding-block: 34px 30px;
+    }
+
+    .hero__title {
+      max-width: none;
+      font-size: clamp(2.4rem, 10.4vw, 3.4rem);
+    }
+
+    .hero__lead {
+      margin-top: 22px;
+      max-width: 34ch;
+    }
+
+    .hero__actions {
+      margin-top: 30px;
+    }
+  }
+</style>

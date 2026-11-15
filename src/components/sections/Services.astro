@@ -1,0 +1,115 @@
+---
+/**
+ * Секция 04 — услуги. Источник: src/data/services.ts.
+ * Четыре строки таблицей: номер, название, одна фраза. Наведение — фон строки
+ * и золото в номере; клик не предполагается, страниц услуг у концепта нет.
+ */
+import { SERVICES } from '../../data/services';
+---
+
+<section class="sec surface-ink services" id="services" aria-labelledby="services-title">
+  <div class="shell sec__inner">
+    <div class="sec__num">04</div>
+
+    <div class="services__wrap">
+      <div class="services__head">
+        <h2 class="h2" id="services-title">Что берём на себя</h2>
+        <p class="mono services__note">Полный цикл</p>
+      </div>
+
+      <ul class="services__list">
+        {
+          SERVICES.map((service) => (
+            <li class="services__row">
+              <span class="mono services__n">{service.n}</span>
+              <h3 class="services__title">{service.title}</h3>
+              <p class="services__line">{service.line}</p>
+            </li>
+          ))
+        }
+      </ul>
+    </div>
+  </div>
+</section>
+
+<style>
+  .services__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 44px;
+  }
+
+  .services__note {
+    color: var(--fg-muted);
+  }
+
+  .services__list {
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .services__row {
+    display: grid;
+    grid-template-columns: auto minmax(0, 1fr);
+    grid-template-areas:
+      'n title'
+      '. line';
+    align-items: baseline;
+    column-gap: 16px;
+    row-gap: 10px;
+    padding-block: 22px;
+    border-top: 1px solid var(--rule);
+    transition: background-color var(--dur-2) var(--ease-out);
+  }
+
+  .services__n {
+    grid-area: n;
+    color: var(--fg-muted);
+    transition: color var(--dur-2) var(--ease-out);
+  }
+
+  .services__title {
+    grid-area: title;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.5rem;
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+  }
+
+  .services__line {
+    grid-area: line;
+    max-width: 42ch;
+    color: var(--fg-muted);
+    font-size: 0.9375rem;
+    text-wrap: pretty;
+  }
+
+  @media (hover: hover) and (min-width: 900px) {
+    .services__row:hover {
+      background: var(--ink-2);
+    }
+
+    .services__row:hover .services__n {
+      color: var(--accent);
+    }
+  }
+
+  @media (min-width: 900px) {
+    .services__row {
+      grid-template-columns: 64px minmax(0, 24%) minmax(0, 1fr);
+      grid-template-areas: 'n title line';
+      align-items: center;
+      column-gap: 24px;
+      row-gap: 0;
+      padding-block: 30px;
+      padding-inline: 12px;
+    }
+
+    .services__title {
+      font-size: 1.625rem;
+    }
+  }
+</style>

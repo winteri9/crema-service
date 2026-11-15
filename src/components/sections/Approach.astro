@@ -1,0 +1,76 @@
+---
+/**
+ * Секция 02 — подход. Источник: src/data/approach.ts.
+ * Две колонки: утверждение слева, два абзаца справа. Номер секции — в левом поле.
+ */
+import { APPROACH } from '../../data/approach';
+---
+
+<section class="sec surface-ink" id="approach" aria-labelledby="approach-title">
+  <div class="shell sec__inner">
+    <div class="sec__num">{APPROACH.n}</div>
+
+    <div class="approach">
+      <h2 class="h2 approach__title" id="approach-title">{APPROACH.title}</h2>
+
+      <div class="approach__text">
+        {APPROACH.paragraphs.map((text) => <p>{text}</p>)}
+      </div>
+
+      <p class="mono approach__caption">{APPROACH.caption}</p>
+    </div>
+  </div>
+</section>
+
+<style>
+  .approach {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+
+  .approach__title {
+    max-width: 12ch;
+  }
+
+  .approach__text {
+    display: grid;
+    gap: 18px;
+    max-width: 46ch;
+  }
+
+  .approach__text p {
+    color: var(--fg-muted);
+    font-size: var(--fs-body);
+    text-wrap: pretty;
+  }
+
+  .approach__caption {
+    padding-top: 22px;
+    border-top: 1px solid var(--rule);
+    color: var(--fg-muted);
+  }
+
+  @media (min-width: 900px) {
+    .approach {
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      column-gap: var(--gutter);
+      row-gap: 0;
+    }
+
+    .approach__title {
+      grid-column: 1 / 7;
+      padding-right: 40px;
+    }
+
+    .approach__text {
+      grid-column: 8 / 13;
+      padding-top: 6px;
+    }
+
+    .approach__caption {
+      grid-column: 1 / -1;
+      margin-top: 96px;
+    }
+  }
+</style>

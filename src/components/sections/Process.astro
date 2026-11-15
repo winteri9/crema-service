@@ -1,0 +1,90 @@
+---
+/**
+ * Секция 05 — процесс. Источник: src/data/process.ts.
+ * Четыре шага одной строкой: линия сверху связывает их в маршрут.
+ */
+import { PROCESS } from '../../data/process';
+---
+
+<section class="sec surface-ink process" id="process" aria-labelledby="process-title">
+  <div class="shell sec__inner">
+    <div class="sec__num">{PROCESS.n}</div>
+
+    <div class="process__wrap">
+      <h2 class="h2 process__title" id="process-title">{PROCESS.title}</h2>
+
+      <ol class="process__grid">
+        {
+          PROCESS.steps.map((step) => (
+            <li class="process__step">
+              <span class="mono process__n">{step.n}</span>
+              <h3 class="process__step-title">{step.title}</h3>
+              <p class="process__line">{step.line}</p>
+            </li>
+          ))
+        }
+      </ol>
+    </div>
+  </div>
+</section>
+
+<style>
+  .process__title {
+    max-width: 16ch;
+    margin-bottom: 56px;
+  }
+
+  .process__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+
+  .process__step {
+    padding-block: 22px;
+    border-top: 1px solid var(--rule);
+  }
+
+  .process__n {
+    display: block;
+    margin-bottom: 10px;
+    color: var(--fg-muted);
+  }
+
+  .process__step-title {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 1.25rem;
+    line-height: 1.15;
+    letter-spacing: -0.02em;
+    margin-bottom: 8px;
+  }
+
+  .process__line {
+    max-width: 30ch;
+    color: var(--fg-muted);
+    font-size: 0.9375rem;
+    text-wrap: pretty;
+  }
+
+  @media (min-width: 700px) {
+    .process__grid {
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: var(--gutter);
+    }
+
+  }
+
+  @media (min-width: 900px) {
+    .process__grid {
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+    }
+
+    .process__step {
+      padding-block: 26px 0;
+      padding-right: 24px;
+      border-top: 1px solid var(--rule);
+    }
+
+  }
+</style>

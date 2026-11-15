@@ -1,0 +1,36 @@
+{
+  "name": "voidcode-astro",
+  "version": "0.1.0",
+  "private": true,
+  "type": "module",
+  "description": "VOIDCODE — чистый шаблон клиентского сайта. Принципы: ~/.dsh/rules/architecture.md",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "dev": "astro dev",
+    "build": "astro check && astro build",
+    "preview": "astro preview",
+    "check": "astro check",
+    "contrast": "node tools/contrast.mjs",
+    "shot": "node tools/shot.mjs",
+    "predeploy": "node tools/predeploy-check.mjs",
+    "verify": "node tools/verify.mjs",
+    "verify:fast": "node tools/verify.mjs --no-shots",
+    "photos": "python tools/fetch_photos.py"
+  },
+  "dependencies": {
+    "astro": "7.4.7",
+    "gsap": "^3.15.1",
+    "lenis": "^1.3.27",
+    "three": "^0.187.0"
+  },
+  "devDependencies": {
+    "@astrojs/check": "0.9.12",
+    "@fontsource/inter": "^5.3.0",
+    "@fontsource/inter-tight": "^5.3.0",
+    "@fontsource/jetbrains-mono": "^5.3.0",
+    "@types/three": "^0.187.0",
+    "typescript": "6.0.3"
+  }
+}

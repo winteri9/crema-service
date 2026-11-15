@@ -1,0 +1,267 @@
+---
+/**
+ * Секция 07 — футер. Источник: src/data/footer.ts, структура со скрина 2.
+ * Светлая карточка с отступом от краёв — контрастный финал после тёмной страницы.
+ * Юридические ссылки — не <a>: страниц нет, переход в никуда хуже заглушки.
+ */
+import Cta from './Cta.astro';
+import Arrow from './Arrow.astro';
+import { FOOTER } from '../data/footer';
+import { SITE, CONTACTS } from '../data/site';
+---
+
+<footer class="footer" id="contact">
+  <div class="footer__card surface-paper">
+    <div class="footer__grid">
+      <div class="footer__main">
+        <div class="footer__meta">
+          <span class="mono">{FOOTER.n} · {FOOTER.kicker}</span>
+          <span class="footer__brand">
+            {SITE.brand}
+            <span class="footer__brand-sep" aria-hidden="true">/</span>
+            <span class="footer__brand-sub">{SITE.suffix}</span>
+          </span>
+        </div>
+
+        <h2 class="footer__title">{FOOTER.title}</h2>
+        <p class="footer__text">{FOOTER.text}</p>
+
+        <Cta
+          href={CONTACTS.telegram}
+          label={FOOTER.cta}
+          variant="invert"
+          size="lg"
+          external
+        />
+      </div>
+
+      <aside class="footer__aside">
+        <span class="footer__monogram" aria-hidden="true">{SITE.monogram}</span>
+
+        <ul class="footer__scope">
+          {FOOTER.scope.map((item) => <li>{item}</li>)}
+        </ul>
+
+        <div class="footer__aside-foot">
+          <a
+            class="footer__handle mono"
+            href={CONTACTS.telegram}
+            target="_blank"
+            rel="noopener noreferrer"
+          >
+            <span>{CONTACTS.handle}</span>
+            <Arrow size={14} />
+          </a>
+        </div>
+      </aside>
+    </div>
+
+    <div class="footer__bottom">
+      <span class="mono">© {SITE.year} {SITE.brand}</span>
+      <span class="footer__dash" aria-hidden="true"></span>
+      <span class="footer__legal mono">
+        {FOOTER.legal.map((item) => <span class="footer__legal-item">{item}</span>)}
+      </span>
+    </div>
+  </div>
+</footer>
+
+<style>
+  .footer {
+    padding-inline: var(--pad);
+    padding-bottom: var(--pad);
+    background: var(--ink);
+  }
+
+  .footer__card {
+    max-width: calc(var(--container) + 2 * var(--pad));
+    margin-inline: auto;
+    padding: clamp(28px, 4vw, 56px) clamp(24px, 4vw, 56px) 22px;
+    border: 1px solid var(--hairline-p);
+    border-top: 2px solid var(--accent);
+  }
+
+  .footer__grid {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    gap: 40px;
+  }
+
+  .footer__meta {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px 24px;
+    margin-bottom: 40px;
+  }
+
+  .footer__meta .mono {
+    color: var(--fg-muted);
+  }
+
+  .footer__brand {
+    display: inline-flex;
+    align-items: baseline;
+    gap: 8px;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 0.875rem;
+    letter-spacing: 0.06em;
+    line-height: 1;
+  }
+
+  .footer__brand-sep {
+    opacity: 0.35;
+    font-weight: 400;
+  }
+
+  .footer__brand-sub {
+    font-family: var(--font-mono);
+    font-size: var(--fs-mono);
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+  }
+
+  .footer__title {
+    max-width: 11ch;
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(1.75rem, 7vw, 3.15rem);
+    text-wrap: balance;
+    line-height: 0.95;
+    letter-spacing: -0.042em;
+    margin-left: -0.03em;
+    text-wrap: balance;
+  }
+
+  .footer__text {
+    max-width: 34ch;
+    margin-top: 22px;
+    font-size: var(--fs-body);
+    color: var(--fg-muted);
+    text-wrap: pretty;
+  }
+
+  .footer__main :global(.cta) {
+    margin-top: 34px;
+  }
+
+  /* --- правая колонка: вензель, направления, контакт --- */
+  .footer__aside {
+    display: flex;
+    flex-direction: column;
+    gap: 18px;
+    border-top: 1px solid var(--rule);
+    padding-top: 22px;
+  }
+
+  .footer__monogram {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: clamp(2.75rem, 13vw, 4rem);
+    line-height: 0.8;
+    letter-spacing: -0.05em;
+    color: color-mix(in srgb, var(--ink) 10%, transparent);
+    user-select: none;
+  }
+
+  .footer__scope {
+    display: grid;
+    gap: 6px;
+    font-size: 0.9375rem;
+    color: var(--fg);
+  }
+
+  .footer__aside-foot {
+    margin-top: auto;
+    padding-top: 18px;
+    border-top: 1px solid var(--rule);
+  }
+
+  .footer__handle {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    color: var(--fg);
+    text-decoration: none;
+    letter-spacing: 0.14em;
+  }
+
+  .footer__handle :global(.arrow) {
+    transition: transform var(--dur-2) var(--ease-out);
+  }
+
+  .footer__handle:hover :global(.arrow) {
+    transform: translateX(3px);
+  }
+
+  /* --- нижняя строка --- */
+  .footer__bottom {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 8px 18px;
+    margin-top: 40px;
+    padding-top: 16px;
+    border-top: 1px solid var(--rule);
+  }
+
+  .footer__bottom .mono {
+    color: var(--fg-muted);
+  }
+
+  .footer__dash {
+    flex: 1 1 40px;
+    height: 1px;
+    background: var(--rule);
+    opacity: 0.9;
+  }
+
+  .footer__legal {
+    display: inline-flex;
+    gap: 18px;
+    color: var(--fg-muted);
+  }
+
+  .footer__legal-item {
+    position: relative;
+    cursor: default;
+  }
+
+  @media (min-width: 900px) {
+    .footer__grid {
+      grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
+      column-gap: 64px;
+      row-gap: 0;
+    }
+
+    .footer__meta {
+      margin-bottom: 56px;
+    }
+
+    .footer__aside {
+      border-top: 0;
+      padding-top: 0;
+      justify-content: space-between;
+      min-height: 100%;
+    }
+
+    .footer__monogram {
+      font-size: clamp(3.25rem, 14vw, 4.5rem);
+      align-self: flex-end;
+    }
+
+    .footer__scope {
+      align-self: flex-end;
+      text-align: left;
+      max-width: 22ch;
+    }
+
+    .footer__bottom {
+      margin-top: 56px;
+    }
+  }
+</style>

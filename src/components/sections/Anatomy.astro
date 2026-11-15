@@ -1,0 +1,253 @@
+---
+/**
+ * Секция 03 — анатомия. Источник названий: src/data/parts.ts.
+ * Модель: GLB из Blender (tools/blender/build.py), разборка по кнопке.
+ * Без WebGL или при prefers-reduced-motion: рендер-кадр и список узлов.
+ */
+import Arrow from '../Arrow.astro';
+import { ANATOMY, PARTS } from '../../data/parts';
+---
+
+<section class="sec anatomy" id="anatomy" aria-labelledby="anatomy-title">
+  <div class="shell sec__inner anatomy__head">
+    <div class="sec__num">{ANATOMY.n}</div>
+
+    <div class="anatomy__head-row">
+      <h2 class="h2" id="anatomy-title">{ANATOMY.title}</h2>
+      <p class="anatomy__hint mono">
+        Крутите · приближайте · разбирайте
+        <Arrow size={14} />
+      </p>
+    </div>
+  </div>
+
+  <div class="anatomy__viewer" data-viewer-root>
+    <div class="anatomy__stage" data-viewer-stage>
+      <canvas class="anatomy__canvas" data-viewer-canvas aria-label="Трёхмерная модель кофемашины"></canvas>
+      <img
+        class="anatomy__poster"
+        src={`${import.meta.env.BASE_URL}img/model-still.png`}
+        width="1200"
+        height="1200"
+        alt="Корпус кофемашины в разрезе: варочная группа, бойлер, помпа, бак для воды"
+        loading="lazy"
+        decoding="async"
+      />
+      <div class="anatomy__labels" data-viewer-labels></div>
+    </div>
+
+    <div class="anatomy__bar">
+      <p class="anatomy__legend mono">Выберите деталь и разберите машину</p>
+      <button class="anatomy__toggle mono" type="button" data-viewer-toggle aria-pressed="false" disabled>
+        Разобрать
+      </button>
+      <p class="anatomy__hint-mono mono">Мышью — поворот · колесо — масштаб</p>
+    </div>
+  </div>
+
+  <div class="shell">
+    <ol class="anatomy__list">
+      {PARTS.map((part, i) => (
+        <li class="anatomy__list-item">
+          <span class="mono anatomy__list-idx">{String(i + 1).padStart(2, '0')}</span>
+          <span>{part.name}</span>
+        </li>
+      ))}
+    </ol>
+  </div>
+</section>
+
+<script>
+  import { initViewer } from '../../scenes/viewer';
+
+  const root = document.querySelector('[data-viewer-root]');
+  if (root instanceof HTMLElement) initViewer(root);
+</script>
+
+<style>
+  .anatomy__head-row {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: flex-end;
+    justify-content: space-between;
+    gap: 16px 32px;
+  }
+
+  .anatomy__hint {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--fg-muted);
+  }
+
+  .anatomy__viewer {
+    position: relative;
+    margin-top: clamp(24px, 4vw, 48px);
+  }
+
+  .anatomy__stage {
+    position: relative;
+    height: clamp(360px, 62svh, 760px);
+    overflow: hidden;
+    touch-action: pan-y;
+  }
+
+  .anatomy__stage::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    background: radial-gradient(52% 60% at 50% 46%, rgba(216, 162, 74, 0.09), transparent 70%),
+      radial-gradient(70% 80% at 50% 50%, rgba(18, 16, 13, 0.5), transparent 78%);
+    pointer-events: none;
+  }
+
+  .anatomy__canvas {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    display: block;
+    opacity: 0;
+    transition: opacity 600ms var(--ease-out);
+  }
+
+  .anatomy__viewer.is-ready .anatomy__canvas {
+    opacity: 1;
+  }
+
+  .anatomy__labels {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    z-index: 2;
+  }
+
+  .anatomy__labels :global(.viewer__label) {
+    position: absolute;
+    left: 0;
+    top: 0;
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    padding: 0;
+    font-family: var(--font-mono);
+    font-size: var(--fs-mono);
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    white-space: nowrap;
+    color: var(--fg);
+    text-shadow: 0 1px 12px rgba(18, 16, 13, 0.95), 0 0 3px rgba(18, 16, 13, 0.9);
+    will-change: transform, opacity;
+  }
+
+  .anatomy__labels :global(.viewer__label::before) {
+    content: '';
+    width: 6px;
+    height: 6px;
+    border: 1px solid var(--accent);
+    transform: rotate(45deg);
+    flex: none;
+  }
+
+  .anatomy__bar {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    justify-content: space-between;
+    gap: 18px 32px;
+    padding-block: 18px;
+    padding-inline: var(--pad);
+    border-top: 1px solid var(--rule);
+  }
+
+  .anatomy__legend,
+  .anatomy__hint-mono {
+    color: var(--fg-muted);
+  }
+
+  .anatomy__hint-mono {
+    text-align: right;
+  }
+
+  .anatomy__toggle {
+    min-width: 176px;
+    height: 52px;
+    padding-inline: 26px;
+    border: 1px solid var(--accent);
+    background: transparent;
+    color: var(--accent);
+    letter-spacing: 0.13em;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition: background-color var(--dur-2) var(--ease-out), color var(--dur-2) var(--ease-out);
+  }
+
+  .anatomy__toggle:hover:not(:disabled) {
+    background: var(--accent);
+    color: var(--on-accent);
+  }
+
+  .anatomy__toggle:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  /* --- статичный режим: нет WebGL, нет движения --- */
+  .anatomy__poster {
+    display: none;
+  }
+
+  .anatomy__viewer.is-static .anatomy__canvas,
+  .anatomy__viewer.is-static .anatomy__labels {
+    display: none;
+  }
+
+  .anatomy__viewer.is-static .anatomy__poster {
+    display: block;
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: contain;
+  }
+
+  .anatomy__viewer.is-static .anatomy__stage {
+    height: clamp(360px, 62svh, 620px);
+  }
+
+  .anatomy__list {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(190px, 1fr));
+    gap: 12px 28px;
+    margin-top: 36px;
+    padding-top: 24px;
+    border-top: 1px solid var(--rule);
+    list-style: none;
+  }
+
+  .anatomy__list-item {
+    display: flex;
+    align-items: baseline;
+    gap: 12px;
+    font-size: 0.9375rem;
+  }
+
+  .anatomy__list-idx {
+    color: var(--accent);
+  }
+
+  @media (max-width: 640px) {
+    .anatomy__bar {
+      justify-content: center;
+      text-align: center;
+    }
+
+    .anatomy__hint-mono {
+      display: none;
+    }
+
+    .anatomy__toggle {
+      width: 100%;
+    }
+  }
+</style>

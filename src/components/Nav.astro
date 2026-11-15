@@ -1,0 +1,142 @@
+---
+/**
+ * Верхняя строка первого экрана. Не фиксированная: на лендинге с пином
+ * липкая шапка отнимает кадр у сцены. Ссылки ведут на якоря секций.
+ */
+import Arrow from './Arrow.astro';
+import { SITE, CONTACTS, NAV } from '../data/site';
+---
+
+<nav class="nav" aria-label="Основная навигация">
+  <a class="nav__brand" href="#top">
+    <span class="nav__mark">{SITE.brand}</span>
+    <span class="nav__slash" aria-hidden="true"></span>
+    <span class="nav__mark-sub">{SITE.suffix}</span>
+  </a>
+
+  <ul class="nav__links">
+    {
+      NAV.map((item) => (
+        <li>
+          <a class="nav__link" href={item.href}>
+            {item.label}
+          </a>
+        </li>
+      ))
+    }
+  </ul>
+
+  <a
+    class="nav__tg"
+    href={CONTACTS.telegram}
+    target="_blank"
+    rel="noopener noreferrer"
+    aria-label={`Telegram ${CONTACTS.handle}`}
+  >
+    <span class="nav__tg-text">{CONTACTS.handle}</span>
+    <Arrow size={14} />
+  </a>
+</nav>
+
+<style>
+  .nav {
+    position: relative;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    gap: 40px;
+    height: 88px;
+    border-bottom: 1px solid color-mix(in srgb, var(--paper) 13%, transparent);
+  }
+
+  .nav__brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    text-decoration: none;
+    color: inherit;
+  }
+
+  .nav__mark {
+    font-family: var(--font-display);
+    font-weight: 800;
+    font-size: 0.9375rem;
+    letter-spacing: 0.05em;
+    line-height: 1;
+  }
+
+  .nav__slash {
+    width: 1px;
+    height: 16px;
+    background: currentColor;
+    opacity: 0.28;
+  }
+
+  .nav__mark-sub {
+    font-family: var(--font-mono);
+    font-size: var(--fs-mono);
+    letter-spacing: 0.2em;
+    text-transform: uppercase;
+    color: var(--fg-muted);
+    transform: translateY(0.5px);
+  }
+
+  .nav__links {
+    display: none;
+    gap: 36px;
+    margin-left: auto;
+  }
+
+  .nav__link {
+    font-family: var(--font-mono);
+    font-size: var(--fs-mono);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-decoration: none;
+    color: var(--fg-muted);
+    transition: color var(--dur-1) var(--ease-out);
+  }
+
+  .nav__link:hover,
+  .nav__link:focus-visible {
+    color: var(--fg);
+  }
+
+  .nav__tg {
+    display: inline-flex;
+    align-items: center;
+    gap: 10px;
+    margin-left: auto;
+    font-family: var(--font-mono);
+    font-size: var(--fs-mono);
+    letter-spacing: 0.14em;
+    text-transform: uppercase;
+    text-decoration: none;
+    color: var(--fg);
+  }
+
+  .nav__tg :global(.arrow) {
+    transition: transform var(--dur-2) var(--ease-out);
+  }
+
+  .nav__tg:hover :global(.arrow),
+  .nav__tg:focus-visible :global(.arrow) {
+    transform: translateX(3px);
+  }
+
+  @media (min-width: 900px) {
+    .nav {
+      gap: 56px;
+    }
+
+    .nav__links {
+      display: flex;
+      margin-left: 0;
+      margin-right: auto;
+    }
+
+    .nav__tg {
+      margin-left: 0;
+    }
+  }
+</style>

@@ -1,0 +1,74 @@
+---
+/**
+ * Каркас страницы: <html>, <head>, слот.
+ *
+ * Сделано: самохостинг шрифтов (@font-face в base.css), preload заголовочного
+ * начертания, OG-теги, классы состояния на <html> (js / reduce) — принцип 7:
+ * скрытие до анимации работает только под html.js:not(.reduce).
+ * JSON-LD не ставим: у концепта нет юрлица и адреса (см. docs/PLACEHOLDERS.md).
+ */
+import '../styles/tokens.css';
+import '../styles/base.css';
+import { SITE } from '../data/site';
+import tightCyr from '../assets/fonts/inter-tight-800-cyrillic.woff2?url';
+import tightLat from '../assets/fonts/inter-tight-800-latin.woff2?url';
+
+interface Props {
+  title?: string;
+  description?: string;
+}
+
+const { title = SITE.title, description = SITE.description } = Astro.props;
+const base = import.meta.env.BASE_URL;
+const ogImage = new URL(`${base}img/model-still.png`, SITE.url).href;
+---
+
+<!doctype html>
+<html lang="ru">
+  <head>
+    <meta charset="utf-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>{title}</title>
+    <meta name="description" content={description} />
+    <link rel="icon" href={`${base}favicon.svg`} type="image/svg+xml" />
+
+    <link
+      rel="preload"
+      href={tightCyr}
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+    <link
+      rel="preload"
+      href={tightLat}
+      as="font"
+      type="font/woff2"
+      crossorigin
+    />
+
+    <meta property="og:type" content="website" />
+    <meta property="og:locale" content={SITE.locale} />
+    <meta property="og:title" content={title} />
+    <meta property="og:description" content={description} />
+    <meta property="og:image" content={ogImage} />
+    <meta property="og:url" content={new URL(base, SITE.url).href} />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="theme-color" content="#12100d" />
+
+    <script is:inline>
+      // классы состояния до первой отрисовки: без JS ничего не прячем
+      const d = document.documentElement;
+      d.classList.add('js');
+      if (matchMedia('(prefers-reduced-motion: reduce)').matches) d.classList.add('reduce');
+    </script>
+  </head>
+  <body>
+    <a class="skip" href="#main">К содержанию</a>
+    <div class="page-bg" aria-hidden="true">
+      <img src={`${base}img/bg.webp`} alt="" width="1710" height="1112" decoding="async" fetchpriority="low" />
+    </div>
+    <slot />
+    <div class="grain" aria-hidden="true"></div>
+  </body>
+</html>

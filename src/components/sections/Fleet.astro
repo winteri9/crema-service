@@ -1,0 +1,108 @@
+---
+/**
+ * Секция 06 — парк оборудования. Источник: src/data/fleet.ts (draft).
+ * Бегущая строка на всю ширину: список дублируется, второй экземпляр aria-hidden.
+ * Анимация на CSS, чтобы строка ехала и без JS; при reduce — стоит.
+ */
+import { FLEET } from '../../data/fleet';
+---
+
+<section class="sec surface-ink fleet" id="fleet" aria-labelledby="fleet-title">
+  <div class="shell sec__inner">
+    <div class="sec__num">{FLEET.n}</div>
+
+    <div class="fleet__head">
+      <h2 class="h2" id="fleet-title">{FLEET.title}</h2>
+      <p class="mono fleet__note">Парк оборудования</p>
+    </div>
+  </div>
+
+  <div class="fleet__marquee">
+    <div class="fleet__track">
+      <ul class="fleet__list">
+        {FLEET.items.map((item) => <li class="fleet__item">{item}</li>)}
+      </ul>
+      <ul class="fleet__list" aria-hidden="true">
+        {FLEET.items.map((item) => <li class="fleet__item">{item}</li>)}
+      </ul>
+    </div>
+  </div>
+</section>
+
+<style>
+  .fleet {
+    padding-bottom: 0;
+  }
+
+  .fleet__head {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 16px;
+    margin-bottom: 48px;
+  }
+
+  .fleet__note {
+    color: var(--fg-muted);
+  }
+
+  .fleet__marquee {
+    overflow: hidden;
+    border-block: 1px solid var(--rule);
+    padding-block: 26px;
+    -webkit-mask-image: linear-gradient(
+      90deg,
+      transparent 0,
+      #000 6%,
+      #000 94%,
+      transparent 100%
+    );
+    mask-image: linear-gradient(90deg, transparent 0, #000 6%, #000 94%, transparent 100%);
+  }
+
+  .fleet__track {
+    display: flex;
+    width: max-content;
+    animation: fleet-run 48s linear infinite;
+  }
+
+  .fleet__list {
+    display: flex;
+    align-items: center;
+  }
+
+  .fleet__item {
+    display: flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: var(--fs-mono-l);
+    font-weight: 500;
+    letter-spacing: 0.18em;
+    text-transform: uppercase;
+    color: color-mix(in srgb, var(--paper) 72%, transparent);
+    white-space: nowrap;
+  }
+
+  .fleet__item::after {
+    content: '';
+    width: 4px;
+    height: 4px;
+    margin-inline: 26px;
+    background: var(--accent);
+    opacity: 0.55;
+    transform: rotate(45deg);
+  }
+
+  @keyframes fleet-run {
+    to {
+      transform: translateX(-50%);
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .fleet__track {
+      animation: none;
+    }
+  }
+</style>
