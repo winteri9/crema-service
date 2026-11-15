@@ -299,7 +299,7 @@ export function initViewer(root: HTMLElement) {
       btn.disabled = false;
       root.classList.add('is-ready');
       ready = true;
-      apply(0);
+      apply(progress);
     },
     undefined,
     () => {
