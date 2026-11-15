@@ -148,7 +148,23 @@ import { ANATOMY, PARTS } from '../../data/parts';
     transform: rotate(45deg);
     flex: none;
   }
+  .anatomy__labels :global(.viewer__leaders) {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    overflow: visible;
+  }
 
+  .anatomy__labels :global(.viewer__leader) {
+    stroke: var(--accent);
+    stroke-width: 1;
+    stroke-linecap: round;
+  }
+
+  .anatomy__labels :global(.viewer__leader-dot) {
+    fill: var(--accent);
+  }
   .anatomy__bar {
     display: flex;
     flex-wrap: wrap;

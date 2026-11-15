@@ -42,6 +42,8 @@
 
   --container: 1280px;
   --pad: clamp(20px, 4vw, 40px);
+  /* полная ширина оболочки — нужна, чтобы кромка кадра на герое доходила до края экрана */
+  --shell-max: calc(var(--container) + 2 * var(--pad));
   --gutter: 24px;
   --rail: 92px;
   --sec-pad: clamp(76px, 10vw, 168px);

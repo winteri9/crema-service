@@ -1,640 +1,1067 @@
-"""
-Сборка кофемашины в Blender через bpy.
+# -*- coding: utf-8 -*-
+"""CREMA — процедурная кофемашина для сайта.
 
 Запуск:
-    blender -b -P tools/blender/build.py -- --stage 1
+  blender -b -P tools/blender/build.py -- --stage 3
 
-Этапы:
-    1 — корпус и панели
-    2 — внешние узлы (группа, кран, поддон, бункер, бак)
-    3 — внутренние узлы (бойлер, помпа, заварочный блок)
-    4 — разборка: rest_matrix и explode_vector
-    5 — экспорт GLB
+Стадии:
+  1  корпус: цоколь, рама, щёки, панель, площадка
+  2  + лицо: дисплей, кнопки, клавиши, группа, рожок, кран, поддон, бак, бункер
+  3  + нутро: заварочный блок, бойлер, помпа, кофемолка, шланги
+  4  разборка (explode) — рендер разнесённой машины
+  5  постер 1200x1200 (Cycles) + экспорт public/model/machine.glb
 
-Сцена в метрах: 0.24 (X, ширина) × 0.44 (Y, глубина) × 0.34 (Z, высота).
-Перед камерой стоит −Y, поэтому фронт машины смотрит в −Y.
+Габарит: W 0.210 x D 0.390 x H 0.390 м, низ на z=0, фронт в -Y.
 """
 
-import json
+import bpy
+import bmesh
 import math
 import os
 import sys
+import json
+import random
+from mathutils import Vector, Euler, Matrix
 
-import bmesh
-import bpy
-from mathutils import Vector
+# ---------------------------------------------------------------- CLI / пути
 
-W, D, H = 0.240, 0.440, 0.340
-ROOT = os.path.dirname(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-PICS = os.path.join(ROOT, "pics")
-BLEND = os.path.join(ROOT, "tools", "blender", "machine.blend")
+ARGV = sys.argv[sys.argv.index('--') + 1:] if '--' in sys.argv else []
 
 
-# ---------------------------------------------------------------- utilities
-
-
-def args():
-    argv = sys.argv
-    return argv[argv.index("--") + 1 :] if "--" in argv else []
-
-
-def get_arg(name, default=None):
-    a = args()
-    if name in a:
-        i = a.index(name)
-        return a[i + 1] if i + 1 < len(a) else default
+def argv_num(name, default):
+    if name in ARGV:
+        i = ARGV.index(name)
+        if i + 1 < len(ARGV):
+            try:
+                return int(ARGV[i + 1])
+            except ValueError:
+                pass
     return default
 
 
-def reset_scene():
-    bpy.ops.wm.read_factory_settings(use_empty=True)
-    sc = bpy.context.scene
-    sc.unit_settings.system = "METRIC"
-    sc.unit_settings.scale_length = 1.0
-    sc.render.engine = "BLENDER_EEVEE_NEXT" if "EEVEE_NEXT" in [
-        e.identifier for e in bpy.types.RenderSettings.bl_rna.properties["engine"].enum_items
-    ] else "BLENDER_EEVEE"
-    sc.render.resolution_x = 1600
-    sc.render.resolution_y = 1200
-    sc.render.film_transparent = False
-    sc.view_settings.view_transform = "AgX"
-    world = bpy.data.worlds.new("W")
-    sc.world = world
-    world.use_nodes = True
-    bg = world.node_tree.nodes["Background"]
-    bg.inputs[0].default_value = (0.045, 0.040, 0.035, 1)
-    bg.inputs[1].default_value = 1.0
+STAGE = argv_num('--stage', 5)
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+ROOT = os.path.dirname(os.path.dirname(HERE))
+PICS = os.path.join(ROOT, 'pics')
+GLB = os.path.join(ROOT, 'public', 'model', 'machine.glb')
+STILL = os.path.join(ROOT, 'public', 'img', 'model-still.png')
+BLEND = os.path.join(HERE, 'machine.blend')
+
+for _p in (PICS, os.path.dirname(GLB), os.path.dirname(STILL)):
+    os.makedirs(_p, exist_ok=True)
+
+# ---------------------------------------------------------------- размеры
+
+W = 0.210          # ширина
+D = 0.390          # глубина
+H = 0.390          # высота корпуса
+X1 = W / 2.0       # 0.105
+X2 = -X1
+YF = -D / 2.0      # -0.195 фронт
+YB = D / 2.0       # 0.195 тыл
+Z0 = 0.022         # низ корпуса (на цоколе)
+ZTOP = 0.384       # верх корпуса
+
+FRONT = YF
+
+C = bpy.context
+SC = C.scene
+ROOTS = {}
+STUDIO = []
 
 
-def mat(name, color, metallic=0.0, rough=0.4, alpha=1.0, emission=None):
+# ---------------------------------------------------------------- утилиты
+
+
+def srgb(hex_str):
+    h = hex_str.lstrip('#')
+    out = []
+    for i in (0, 2, 4):
+        c = int(h[i:i + 2], 16) / 255.0
+        out.append(c / 12.92 if c <= 0.04045 else ((c + 0.055) / 1.055) ** 2.4)
+    return out
+
+
+def link(ob):
+    SC.collection.objects.link(ob)
+    return ob
+
+
+def mat_make(name, color, metallic=0.0, rough=0.5, alpha=1.0,
+             emis=None, emis_str=0.0, coat=0.0, coat_rough=0.08,
+             transmission=0.0, ior=1.5):
     m = bpy.data.materials.get(name)
     if m:
         return m
     m = bpy.data.materials.new(name)
     m.use_nodes = True
-    nt = m.node_tree
-    bsdf = nt.nodes.get("Principled BSDF")
-    bsdf.inputs["Base Color"].default_value = (*color, alpha)
-    bsdf.inputs["Metallic"].default_value = metallic
-    bsdf.inputs["Roughness"].default_value = rough
-    if "Alpha" in bsdf.inputs:
-        bsdf.inputs["Alpha"].default_value = alpha
+    b = m.node_tree.nodes.get('Principled BSDF')
+    b.inputs['Base Color'].default_value = (*srgb(color), 1.0)
+    b.inputs['Metallic'].default_value = metallic
+    b.inputs['Roughness'].default_value = rough
+    b.inputs['IOR'].default_value = ior
+    b.inputs['Alpha'].default_value = alpha
+    if coat:
+        b.inputs['Coat Weight'].default_value = coat
+        b.inputs['Coat Roughness'].default_value = coat_rough
+    if transmission:
+        b.inputs['Transmission Weight'].default_value = transmission
+    if emis:
+        b.inputs['Emission Color'].default_value = (*srgb(emis), 1.0)
+        b.inputs['Emission Strength'].default_value = emis_str
     if alpha < 1.0:
-        m.blend_method = "BLEND"
-    if emission:
-        bsdf.inputs["Emission Color"].default_value = (*emission, 1)
-        bsdf.inputs["Emission Strength"].default_value = 1.0
+        m.blend_method = 'BLEND'
+        m.use_backface_culling = False
+    m.roughness = rough
+    m.metallic = metallic
     return m
 
 
-def M():
-    return {
-        "alu": mat("M_Aluminium", (0.055, 0.051, 0.047), 0.88, 0.34),
-        "gold": mat("M_Gold", (0.72, 0.50, 0.20), 1.0, 0.18),
-        "chrome": mat("M_Chrome", (0.80, 0.78, 0.74), 1.0, 0.12),
-        "dark": mat("M_Plastic_Dark", (0.028, 0.024, 0.021), 0.0, 0.45),
-        "matte": mat("M_Plastic_Matte", (0.060, 0.054, 0.047), 0.0, 0.62),
-        "glass": mat("M_Glass_Display", (0.012, 0.011, 0.010), 0.1, 0.08),
-        "copper": mat("M_Copper", (0.40, 0.20, 0.09), 1.0, 0.38),
-        "bean": mat("M_Bean", (0.055, 0.030, 0.014), 0.0, 0.55),
-        "tint": mat("M_Tank_Tint", (0.52, 0.56, 0.58), 0.15, 0.10, alpha=0.30),
-        "glow": mat("M_Display_Glow", (0.02, 0.02, 0.02), 0.0, 0.30, emission=(0.80, 0.48, 0.16)),
-        "smoke": mat("M_Hopper_Smoke", (0.10, 0.09, 0.08), 0.4, 0.12, alpha=0.55),
-    }
+M = {}
 
 
-def set_material(obj, material):
-    obj.data.materials.clear()
-    obj.data.materials.append(material)
+def materials():
+    M['alu'] = mat_make('M_Alu_Body', '#5A5248', 0.88, 0.36, coat=0.20, coat_rough=0.10)
+    M['alu_dark'] = mat_make('M_Alu_Frame', '#2A2521', 0.78, 0.44)
+    M['gold'] = mat_make('M_Gold', '#E5B45E', 1.0, 0.22, coat=0.45, coat_rough=0.06)
+    M['gold_satin'] = mat_make('M_Gold_Satin', '#C08A33', 1.0, 0.30, coat=0.28, coat_rough=0.10)
+    M['chrome'] = mat_make('M_Chrome', '#E9E5DD', 1.0, 0.055)
+    M['steel'] = mat_make('M_Steel', '#9C9891', 1.0, 0.22)
+    M['plastic'] = mat_make('M_Plastic_Dark', '#171410', 0.0, 0.40, coat=0.25, coat_rough=0.12)
+    M['soft'] = mat_make('M_Plastic_Soft', '#221E19', 0.0, 0.68)
+    M['rubber'] = mat_make('M_Rubber', '#0C0B0A', 0.0, 0.88)
+    M['glass_tank'] = mat_make('M_Glass_Tank', '#9FB0B4', 0.0, 0.06, alpha=0.15,
+                               transmission=0.0, coat=0.45, coat_rough=0.03)
+    M['glass_smoke'] = mat_make('M_Glass_Smoke', '#4E483F', 0.0, 0.10, alpha=0.24, coat=0.5, coat_rough=0.03)
+    M['display'] = mat_make('M_Glass_Display', '#0A0B0D', 0.25, 0.05, coat=1.0, coat_rough=0.02)
+    M['glow'] = mat_make('M_Display_Glow', '#F2C06A', 0.0, 0.30, emis='#FFC879', emis_str=2.6)
+    M['copper'] = mat_make('M_Copper', '#B06A3C', 1.0, 0.30)
+    M['brass'] = mat_make('M_Brass', '#C08B45', 1.0, 0.26)
+    M['felt'] = mat_make('M_Felt', '#2A2722', 0.0, 0.95)
+    M['silicone'] = mat_make('M_Silicone', '#9A948A', 0.0, 0.55)
+    M['bean'] = mat_make('M_Bean', '#3B2416', 0.0, 0.42)
+    M['red'] = mat_make('M_Led_Red', '#C0392B', 0.0, 0.40, emis='#FF3B22', emis_str=1.6)
 
 
-def bevel(obj, width=0.004, segments=4, angle=0.6):
-    mod = obj.modifiers.new("Bevel", "BEVEL")
-    mod.width = width
-    mod.segments = segments
-    mod.limit_method = "ANGLE"
-    mod.angle_limit = angle
-    mod.harden_normals = True
-    return mod
+def part(name):
+    ob = bpy.data.objects.new(name, None)
+    ob.empty_display_size = 0.035
+    link(ob)
+    ob.parent = ROOTS['__root']
+    ROOTS[name] = ob
+    return ob
 
 
-def shade_smooth(obj, auto=math.radians(35)):
-    """Сглаживание по углу: в Blender 4.1+ только через оператор."""
-    prev = bpy.context.view_layer.objects.active
-    for o in bpy.context.selected_objects:
-        o.select_set(False)
-    bpy.context.view_layer.objects.active = obj
-    obj.select_set(True)
-    try:
-        bpy.ops.object.shade_smooth_by_angle(angle=auto)
-    except Exception:
-        for p in obj.data.polygons:
-            p.use_smooth = True
-        if hasattr(obj.data, "use_auto_smooth"):
-            obj.data.use_auto_smooth = True
-            obj.data.auto_smooth_angle = auto
-    obj.select_set(False)
-    bpy.context.view_layer.objects.active = prev
-    return obj
-
-
-def box(name, size, loc=(0, 0, 0), rot=(0, 0, 0), material=None, bevel_w=0.004, parent=None):
-    """Плита со скруглёнными рёбрами."""
-    bpy.ops.mesh.primitive_cube_add(size=1, location=loc, rotation=rot)
-    obj = bpy.context.object
-    obj.name = name
-    obj.scale = (size[0], size[1], size[2])
-    bpy.ops.object.transform_apply(location=False, rotation=False, scale=True)
+def finish(name, bm, matname, parent=None, bevel_w=0.0012, bevel_seg=3,
+           smooth=34, recalc=True):
+    if recalc:
+        bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    me = bpy.data.meshes.new(name)
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new(name, me)
+    link(ob)
+    if matname:
+        me.materials.append(M[matname])
+    if parent is not None:
+        ob.parent = parent
     if bevel_w:
-        bevel(obj, bevel_w, 4)
-    if material:
-        set_material(obj, material)
-    shade_smooth(obj)
-    if parent:
-        obj.parent = parent
-    return obj
+        md = ob.modifiers.new('Bevel', 'BEVEL')
+        md.width = bevel_w
+        md.segments = bevel_seg
+        md.limit_method = 'ANGLE'
+        md.angle_limit = math.radians(32)
+        md.miter_outer = 'MITER_ARC'
+        md.use_clamp_overlap = True
+    if smooth:
+        smooth_by_angle(ob, smooth)
+    return ob
 
 
-def rounded_rect_prism(name, w, h, depth, radius, loc=(0, 0, 0), rot=(0, 0, 0), material=None, parent=None):
-    """Плита с закруглёнными углами в плоскости XZ, толщина по Y (как панель).
-
-    Профиль строится в плоскости XY, затем поворот на 90° вокруг X.
-    """
-    r = min(radius, min(w, h) / 2 - 0.001)
-    pts = []
-    steps = 12
-    corners = [
-        (w / 2 - r, h / 2 - r, 0),
-        (-(w / 2 - r), h / 2 - r, 90),
-        (-(w / 2 - r), -(h / 2 - r), 180),
-        (w / 2 - r, -(h / 2 - r), 270),
-    ]
-    for cx, cy, a0 in corners:
-        for i in range(steps + 1):
-            a = math.radians(a0 + 90 * i / steps)
-            pts.append((cx + r * math.cos(a), cy + r * math.sin(a)))
-
-    mesh = bpy.data.meshes.new(name)
+def smooth_by_angle(ob, angle=34):
+    me = ob.data
+    if not me.polygons:
+        return
+    for p in me.polygons:
+        p.use_smooth = True
     bm = bmesh.new()
-    verts = [bm.verts.new((x, -depth / 2, y)) for x, y in pts]
-    bm.verts.ensure_lookup_table()
-    face = bm.faces.new(verts)
-    r_ext = bmesh.ops.extrude_face_region(bm, geom=[face])
-    moved = [e for e in r_ext["geom"] if isinstance(e, bmesh.types.BMVert)]
-    bmesh.ops.translate(bm, verts=moved, vec=(0, depth, 0))
-    bm.faces.ensure_lookup_table()
-    bmesh.ops.recalc_face_normals(bm, faces=bm.faces)
-    bm.to_mesh(mesh)
+    bm.from_mesh(me)
+    lim = math.radians(angle)
+    for e in bm.edges:
+        if len(e.link_faces) == 2 and e.calc_face_angle(0.0) > lim:
+            e.smooth = False
+    bm.to_mesh(me)
     bm.free()
 
-    obj = bpy.data.objects.new(name, mesh)
-    bpy.context.collection.objects.link(obj)
-    obj.location = loc
-    obj.rotation_euler = rot
-    bpy.context.view_layer.objects.active = obj
-    bevel(obj, 0.0015, 3)
-    if material:
-        set_material(obj, material)
-    shade_smooth(obj)
-    if parent:
-        obj.parent = parent
-    return obj
+
+def rrect(w, h, r, seg=6, cx=0.0, cy=0.0):
+    """Скруглённый прямоугольник в локальных (x,y), против часовой."""
+    hw, hh = w / 2.0, h / 2.0
+    r = max(0.0002, min(r, hw * 0.999, hh * 0.999))
+    pts = []
+    corners = ((hw - r, -hh + r, -90.0), (hw - r, hh - r, 0.0),
+               (-hw + r, hh - r, 90.0), (-hw + r, -hh + r, 180.0))
+    for ox, oy, a0 in corners:
+        n = seg if r > 0.001 else 1
+        for i in range(n + 1):
+            a = math.radians(a0 + 90.0 * i / n)
+            pts.append((cx + ox + r * math.cos(a), cy + oy + r * math.sin(a)))
+    return pts
 
 
-def cylinder(name, radius, depth, loc=(0, 0, 0), rot=(0, 0, 0), material=None, verts=64, parent=None):
-    bpy.ops.mesh.primitive_cylinder_add(vertices=verts, radius=radius, depth=depth, location=loc, rotation=rot)
-    obj = bpy.context.object
-    obj.name = name
-    bevel(obj, min(0.0015, depth / 4), 2)
-    if material:
-        set_material(obj, material)
-    shade_smooth(obj)
-    if parent:
-        obj.parent = parent
-    return obj
+def prism_xz(name, pts, y0, y1, matname, parent=None, bevel_w=0.0012, bevel_seg=3):
+    """Полигон в плоскости XZ, выдавленный по Y."""
+    bm = bmesh.new()
+    v0 = [bm.verts.new((x, y0, z)) for x, z in pts]
+    v1 = [bm.verts.new((x, y1, z)) for x, z in pts]
+    n = len(pts)
+    bm.faces.new(v0[:])
+    bm.faces.new(v1[:])
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((v0[i], v0[j], v1[j], v1[i]))
+    return finish(name, bm, matname, parent, bevel_w, bevel_seg)
 
 
-def empty(name, loc=(0, 0, 0), parent=None):
-    obj = bpy.data.objects.new(name, None)
-    obj.empty_display_size = 0.02
-    obj.location = loc
-    bpy.context.collection.objects.link(obj)
-    if parent:
-        obj.parent = parent
-    return obj
+def prism_xy(name, pts, z0, z1, matname, parent=None, bevel_w=0.0012, bevel_seg=3):
+    """Полигон в плоскости XY, выдавленный по Z."""
+    bm = bmesh.new()
+    v0 = [bm.verts.new((x, y, z0)) for x, y in pts]
+    v1 = [bm.verts.new((x, y, z1)) for x, y in pts]
+    n = len(pts)
+    bm.faces.new(v0[:])
+    bm.faces.new(v1[:])
+    for i in range(n):
+        j = (i + 1) % n
+        bm.faces.new((v0[i], v0[j], v1[j], v1[i]))
+    return finish(name, bm, matname, parent, bevel_w, bevel_seg)
 
 
-# ---------------------------------------------------------------- stage 1
+def box(name, size, loc, matname, parent=None, bevel_w=0.0009, bevel_seg=2, rot=None):
+    bm = bmesh.new()
+    sx, sy, sz = size
+    for ix in (-1, 1):
+        for iy in (-1, 1):
+            for iz in (-1, 1):
+                bm.verts.new((ix * sx / 2.0, iy * sy / 2.0, iz * sz / 2.0))
+    bm.verts.ensure_lookup_table()
+    idx = [(0, 1, 3, 2), (4, 6, 7, 5), (0, 4, 5, 1),
+           (2, 3, 7, 6), (0, 2, 6, 4), (1, 5, 7, 3)]
+    for f in idx:
+        bm.faces.new([bm.verts[i] for i in f])
+    if rot:
+        bmesh.ops.rotate(bm, cent=(0, 0, 0), matrix=Euler(rot, 'XYZ').to_matrix(), verts=bm.verts[:])
+    bmesh.ops.translate(bm, vec=Vector(loc), verts=bm.verts[:])
+    return finish(name, bm, matname, parent, bevel_w, bevel_seg)
 
 
-def stage1(mats):
-    root = empty("Machine_Root")
-    shell = empty("Shell", parent=root)
-
-    body_w, body_d, body_h = W, D, H
-    body = rounded_rect_prism(
-        "Body_Main",
-        body_w,
-        body_h - 0.016,
-        body_d,
-        0.020,
-        loc=(0, 0, body_h / 2 - 0.008),
-        material=mats["alu"],
-        parent=shell,
-    )
-    body.scale = (1, 1, 1)
-    # Скруглённая крышка сверху — даёт мягкий силуэт вместо кирпича.
-    rounded_rect_prism(
-        "Body_Crown",
-        body_w - 0.002,
-        0.026,
-        body_d - 0.002,
-        0.012,
-        loc=(0, 0, body_h - 0.006),
-        material=mats["alu"],
-        parent=shell,
-    )
-
-    # Внутренняя выборка: видно нутро, когда панели сняты.
-    inner = box("Body_Core", (body_w - 0.03, body_d - 0.05, body_h - 0.05), loc=(0, -0.01, body_h / 2), material=mats["dark"], bevel_w=0.004, parent=shell)
-    inner.hide_render = False
-
-    # Щёки: чуть уже корпуса, с зазором 1.2 мм.
-    for side, x in (("Left", -(body_w / 2)), ("Right", body_w / 2)):
-        p = box(
-            f"Panel_{side}",
-            (0.012, body_d - 0.024, body_h - 0.03),
-            loc=(x + (0.004 if side == "Left" else -0.004), 0, body_h / 2),
-            material=mats["alu"],
-            bevel_w=0.004,
-            parent=shell,
-        )
-        p.rotation_euler[1] = math.radians(1.2 if side == "Left" else -1.2)
-
-    # Лицевая золотая панель: втоплена на 4 мм, по контуру остаётся кожух.
-    rounded_rect_prism(
-        "Panel_Front",
-        W - 0.030,
-        H - 0.048,
-        0.014,
-        0.020,
-        loc=(0, -body_d / 2 - 0.001, H / 2 - 0.004),
-        material=mats["gold"],
-        parent=root,
-    )
-
-    # Верхняя площадка подогрева.
-    box("Panel_Top", (W + 0.002, D - 0.018, 0.008), loc=(0, 0, H + 0.009), material=mats["alu"], bevel_w=0.003, parent=shell)
-    for i in range(3):
-        box(
-            "Grille_Top",
-            (W - 0.070, 0.005, 0.005),
-            loc=(0, -0.120 + i * 0.105, H + 0.0135),
-            material=mats["gold"],
-            bevel_w=0.002,
-            parent=shell,
-        )
-
-    # Плинтус.
-    box("Base_Plinth", (W + 0.006, D - 0.004, 0.012), loc=(0, 0, 0.006), material=mats["gold"], bevel_w=0.003, parent=shell)
-
-    # Шильдик на лицевой панели снизу.
-    box("Badge", (0.036, 0.002, 0.008), loc=(0, -body_d / 2 - 0.008, 0.022), material=mats["chrome"], bevel_w=0.001, parent=root)
-
-    # Заглушка дисплея не нужна: на этапе 2 строится Control_Panel.
-
-    return root
+def cyl_bm(r0, r1, h, seg=32, cap=True):
+    bm = bmesh.new()
+    bot, top = [], []
+    for i in range(seg):
+        a = 2 * math.pi * i / seg
+        bot.append(bm.verts.new((r0 * math.cos(a), r0 * math.sin(a), -h / 2.0)))
+        if r1 > 1e-6:
+            top.append(bm.verts.new((r1 * math.cos(a), r1 * math.sin(a), h / 2.0)))
+    if not top:
+        top = [bm.verts.new((0, 0, h / 2.0))]
+    if cap:
+        bm.faces.new(bot[:])
+        if len(top) > 2:
+            bm.faces.new(top[:])
+    if len(top) > 2:
+        for i in range(seg):
+            j = (i + 1) % seg
+            bm.faces.new((bot[i], bot[j], top[j], top[i]))
+    else:
+        for i in range(seg):
+            j = (i + 1) % seg
+            bm.faces.new((bot[i], bot[j], top[0]))
+    bmesh.ops.recalc_face_normals(bm, faces=bm.faces[:])
+    return bm
 
 
-# ---------------------------------------------------------------- camera / lights
+def cyl(name, r, h, loc, matname, parent=None, seg=32, axis='Z', rot=None,
+        bevel_w=0.0006, bevel_seg=2, r1=None):
+    bm = cyl_bm(r, r if r1 is None else r1, h, seg)
+    if axis == 'X':
+        bmesh.ops.rotate(bm, cent=(0, 0, 0), matrix=Euler((0, math.pi / 2, 0)).to_matrix(), verts=bm.verts[:])
+    elif axis == 'Y':
+        bmesh.ops.rotate(bm, cent=(0, 0, 0), matrix=Euler((math.pi / 2, 0, 0)).to_matrix(), verts=bm.verts[:])
+    if rot:
+        bmesh.ops.rotate(bm, cent=(0, 0, 0), matrix=Euler(rot, 'XYZ').to_matrix(), verts=bm.verts[:])
+    bmesh.ops.translate(bm, vec=Vector(loc), verts=bm.verts[:])
+    return finish(name, bm, matname, parent, bevel_w, bevel_seg)
 
 
-def studio(target=(0, 0, 0.17)):
-    cam_data = bpy.data.cameras.new("Cam")
-    cam_data.lens = 85
-    cam = bpy.data.objects.new("Cam", cam_data)
-    cam.location = (0.86, -1.62, 0.58)
-    bpy.context.collection.objects.link(cam)
-    bpy.context.scene.camera = cam
-
-    track = cam.constraints.new("TRACK_TO")
-    emp = empty("Cam_Target", loc=target)
-    track.target = emp
-    track.track_axis = "TRACK_NEGATIVE_Z"
-    track.up_axis = "UP_Y"
-
-    def area(name, loc, rot, size, power, color):
-        d = bpy.data.lights.new(name, "AREA")
-        d.shape = "RECTANGLE"
-        d.size, d.size_y = size
-        d.energy = power
-        d.color = color
-        o = bpy.data.objects.new(name, d)
-        o.location = loc
-        o.rotation_euler = rot
-        bpy.context.collection.objects.link(o)
-        return o
-
-    area("Key", (0.45, -0.55, 0.62), (math.radians(48), 0, math.radians(38)), (0.7, 0.5), 90, (1.0, 0.92, 0.82))
-    area("Fill", (-0.55, -0.35, 0.28), (math.radians(78), 0, math.radians(-58)), (0.9, 0.7), 22, (0.85, 0.80, 0.72))
-    area("Rim", (0.0, 0.55, 0.45), (math.radians(120), 0, 0), (0.8, 0.3), 60, (0.95, 0.90, 0.85))
-
-    # Тёмный стол, чтобы машина стояла на поверхности.
-    box("Ground", (1.6, 1.6, 0.008), loc=(0, 0, -0.004), material=mat("M_Ground", (0.055, 0.040, 0.028), 0.0, 0.5), bevel_w=0.001)
-    return cam
+def torus(name, R, r, loc, matname, parent=None, seg=40, rseg=10,
+          axis='Z', rot=None, bevel_w=0.0):
+    bm = bmesh.new()
+    rings = []
+    for i in range(seg):
+        a = 2 * math.pi * i / seg
+        ring = []
+        for j in range(rseg):
+            b = 2 * math.pi * j / rseg
+            x = (R + r * math.cos(b)) * math.cos(a)
+            y = (R + r * math.cos(b)) * math.sin(a)
+            z = r * math.sin(b)
+            ring.append(bm.verts.new((x, y, z)))
+        rings.append(ring)
+    for i in range(seg):
+        i2 = (i + 1) % seg
+        for j in range(rseg):
+            j2 = (j + 1) % rseg
+            bm.faces.new((rings[i][j], rings[i2][j], rings[i2][j2], rings[i][j2]))
+    if axis == 'X':
+        bmesh.ops.rotate(bm, cent=(0, 0, 0), matrix=Euler((0, math.pi / 2, 0)).to_matrix(), verts=bm.verts[:])
+    elif axis == 'Y':
+        bmesh.ops.rotate(bm, cent=(0, 0, 0), matrix=Euler((math.pi / 2, 0, 0)).to_matrix(), verts=bm.verts[:])
+    if rot:
+        bmesh.ops.rotate(bm, cent=(0, 0, 0), matrix=Euler(rot, 'XYZ').to_matrix(), verts=bm.verts[:])
+    bmesh.ops.translate(bm, vec=Vector(loc), verts=bm.verts[:])
+    return finish(name, bm, matname, parent, bevel_w, bevel_seg=2)
 
 
-def render(path, transparent=False, size=None):
-    sc = bpy.context.scene
-    sc.render.filepath = path
-    sc.render.image_settings.file_format = "PNG"
-    sc.render.image_settings.color_mode = "RGBA" if transparent else "RGB"
-    sc.render.film_transparent = transparent
-    if size:
-        sc.render.resolution_x, sc.render.resolution_y = size
-    bpy.ops.render.render(write_still=True)
+def sphere(name, r, loc, matname, parent=None, seg=20, rings=12, scale=(1, 1, 1)):
+    bm = bmesh.new()
+    verts = []
+    for i in range(1, rings):
+        phi = math.pi * i / rings
+        ring = []
+        for j in range(seg):
+            th = 2 * math.pi * j / seg
+            x = r * math.sin(phi) * math.cos(th) * scale[0]
+            y = r * math.sin(phi) * math.sin(th) * scale[1]
+            z = r * math.cos(phi) * scale[2]
+            ring.append(bm.verts.new((x, y, z)))
+        verts.append(ring)
+    top = bm.verts.new((0, 0, r * scale[2]))
+    bot = bm.verts.new((0, 0, -r * scale[2]))
+    for i in range(len(verts) - 1):
+        for j in range(seg):
+            j2 = (j + 1) % seg
+            bm.faces.new((verts[i][j], verts[i + 1][j], verts[i + 1][j2], verts[i][j2]))
+    for j in range(seg):
+        j2 = (j + 1) % seg
+        bm.faces.new((top, verts[0][j2], verts[0][j]))
+        bm.faces.new((bot, verts[-1][j], verts[-1][j2]))
+    bmesh.ops.translate(bm, vec=Vector(loc), verts=bm.verts[:])
+    return finish(name, bm, matname, parent, 0.0, smooth=60)
 
 
-# ---------------------------------------------------------------- stage 2
-
-FRONT = -D / 2
-
-
-def control_panel(mats, root):
-    """Лицевая панель: дисплей, две кнопки, ряд клавиш."""
-    g = empty("Control_Panel", parent=root)
-
-    # Дисплей: хромированная рамка, внутри стекло.
-    rounded_rect_prism(
-        "Display_Frame", 0.056, 0.070, 0.004, 0.009,
-        loc=(-0.046, FRONT - 0.012, 0.212), material=mats["chrome"], parent=g,
-    )
-    rounded_rect_prism(
-        "Display_Glass", 0.049, 0.062, 0.003, 0.008,
-        loc=(-0.046, FRONT - 0.015, 0.212), material=mats["glass"], parent=g,
-    )
-    rounded_rect_prism(
-        "Display_Glow", 0.034, 0.013, 0.001, 0.004,
-        loc=(-0.046, FRONT - 0.017, 0.216), material=mats["glow"], parent=g,
-    )
-
-    # Две круглые кнопки.
-    for i, x in enumerate((-0.008, 0.034)):
-        cylinder(
-            f"Button_{i + 1}", 0.011, 0.010,
-            loc=(x + 0.026, FRONT - 0.014, 0.262),
-            rot=(math.radians(90), 0, 0), material=mats["chrome"], parent=g,
-        )
-        cylinder(
-            f"Button_{i + 1}_Cap", 0.0075, 0.004,
-            loc=(x + 0.026, FRONT - 0.019, 0.262),
-            rot=(math.radians(90), 0, 0), material=mats["dark"], parent=g,
-        )
-
-    # Ряд клавиш под дисплеем.
-    for i in range(3):
-        box(
-            f"Key_{i + 1}", (0.026, 0.008, 0.012),
-            loc=(-0.070 + i * 0.030, FRONT - 0.012, 0.104),
-            material=mats["gold"], bevel_w=0.0015, parent=g,
-        )
-    return g
+def tube(name, pts, r, matname, parent=None, seg=8, radii=None, smooth=60):
+    """Труба по безье-кривой, конвертируется в меш."""
+    cu = bpy.data.curves.new(name, 'CURVE')
+    cu.dimensions = '3D'
+    cu.resolution_u = 6
+    cu.bevel_depth = r
+    cu.bevel_resolution = seg // 2
+    cu.fill_mode = 'FULL'
+    sp = cu.splines.new('BEZIER')
+    sp.bezier_points.add(len(pts) - 1)
+    for i, p in enumerate(pts):
+        bp = sp.bezier_points[i]
+        bp.co = Vector(p)
+        bp.handle_left_type = 'AUTO'
+        bp.handle_right_type = 'AUTO'
+        if radii:
+            bp.radius = radii[i]
+    ob = bpy.data.objects.new(name, cu)
+    link(ob)
+    if parent is not None:
+        ob.parent = parent
+    bpy.context.view_layer.objects.active = ob
+    for o in bpy.context.selected_objects:
+        o.select_set(False)
+    ob.select_set(True)
+    bpy.ops.object.convert(target='MESH')
+    ob = bpy.context.view_layer.objects.active
+    if matname:
+        ob.data.materials.append(M[matname])
+    smooth_by_angle(ob, smooth)
+    return ob
 
 
-def group_head(mats, root):
-    """Варочная группа: корпус, кольцо, носик, держатель фильтра."""
-    g = empty("Group_Head", parent=root)
-    box(
-        "Group_Housing", (0.082, 0.072, 0.086),
-        loc=(0.030, FRONT - 0.030, 0.150),
-        material=mats["gold"], bevel_w=0.010, parent=g,
-    )
-    cylinder(
-        "Group_Ring", 0.036, 0.014,
-        loc=(0.030, FRONT - 0.074, 0.150),
-        rot=(math.radians(90), 0, 0), material=mats["chrome"], parent=g,
-    )
-    cylinder(
-        "Group_Spout", 0.014, 0.020,
-        loc=(0.030, FRONT - 0.086, 0.120),
-        rot=(math.radians(90), 0, 0), material=mats["gold"], parent=g,
-    )
-    # Рукоятка сверху группы.
-    box(
-        "Group_Lever", (0.012, 0.062, 0.012),
-        loc=(0.030, FRONT - 0.030, 0.196),
-        material=mats["chrome"], bevel_w=0.004, parent=g,
-    )
-
-    pf = empty("Portafilter", parent=root)
-    cylinder(
-        "Portafilter_Cup", 0.040, 0.022,
-        loc=(0.030, FRONT - 0.088, 0.146),
-        rot=(math.radians(90), 0, 0), material=mats["chrome"], parent=pf,
-    )
-    cylinder(
-        "Portafilter_Neck", 0.010, 0.016,
-        loc=(0.030, FRONT - 0.104, 0.140),
-        rot=(math.radians(90), 0, 0), material=mats["chrome"], parent=pf,
-    )
-    handle = cylinder(
-        "Portafilter_Handle", 0.011, 0.090,
-        loc=(0.034, FRONT - 0.152, 0.108),
-        material=mats["dark"], parent=pf,
-    )
-    handle.rotation_euler = (math.radians(28), 0, math.radians(6))
-    return g, pf
+def screw(name, loc, direction, parent=None, R=0.0026, matname='steel'):
+    """Винт: головка + тёмное гнездо. direction: 'X+','X-','Y+','Y-','Z+'."""
+    d = {'X+': (0.005, 0, 0), 'X-': (-0.005, 0, 0), 'Y+': (0, 0.005, 0),
+         'Y-': (0, -0.005, 0), 'Z+': (0, 0, 0.005), 'Z-': (0, 0, -0.005)}[direction]
+    ax = 'X' if d[0] else ('Y' if d[1] else 'Z')
+    cyl(name, R, 0.0018, loc, matname, parent, seg=14, axis=ax, bevel_w=0.0002)
+    off = Vector(loc) + Vector(d) * 0.85
+    cyl(name + ' гнездо', R * 0.55, 0.0006, off, 'rubber', parent, seg=12, axis=ax, bevel_w=0.0)
 
 
-def steam_wand(mats, root):
-    g = empty("Steam_Wand", parent=root)
-    cylinder(
-        "Wand_Tube", 0.007, 0.135,
-        loc=(0.124, FRONT + 0.050, 0.185),
-        rot=(math.radians(10), 0, math.radians(-8)), material=mats["chrome"], parent=g,
-    )
-    cylinder(
-        "Wand_Joint", 0.014, 0.020,
-        loc=(0.116, FRONT + 0.030, 0.250), material=mats["chrome"], parent=g,
-    )
-    cylinder(
-        "Wand_Tip", 0.009, 0.018,
-        loc=(0.128, FRONT + 0.078, 0.115), material=mats["dark"], parent=g,
-    )
-    return g
+
+# ---------------------------------------------------------------- части
+
+def build_chassis(p):
+    """Цоколь, рама, крепёж, шильдик, нутряная связка."""
+    # цоколь
+    prism_xy('Цоколь', rrect(0.214, 0.394, 0.014), 0.006, 0.022, 'plastic', p, 0.0022, 3)
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            cyl('Ножка', 0.008, 0.006, (sx * 0.078, sy * 0.158, 0.003), 'rubber', p, seg=16, axis='Z', bevel_w=0.0004)
+    # золотая полоса-фаска над цоколем
+    prism_xy('Золотая фаска', rrect(0.208, 0.388, 0.013), 0.020, 0.030, 'gold_satin', p, 0.0016, 3)
+    # рама
+    box('Задняя стенка', (0.198, 0.008, 0.300), (0, 0.190, 0.185), 'alu_dark', p, 0.0012, 2)
+    box('Дно рамы', (0.196, 0.380, 0.008), (0, 0.0, 0.028), 'alu_dark', p, 0.0012, 2)
+    for sx in (-1, 1):
+        for sy in (-1, 1):
+            box('Стойка', (0.010, 0.010, 0.290), (sx * 0.094, sy * 0.180, 0.180), 'alu_dark', p, 0.0008, 2)
+    box('Нижняя перекладина', (0.176, 0.008, 0.012), (0, -0.190, 0.042), 'alu_dark', p, 0.0008, 2)
+    box('Верхняя перекладина', (0.176, 0.008, 0.012), (0, -0.190, 0.318), 'alu_dark', p, 0.0008, 2)
+    # ниша под чашку: задняя стенка и боковины, чтобы нутро не просвечивало
+    box('Стенка ниши', (0.176, 0.006, 0.078), (0, -0.166, 0.095), 'plastic', p, 0.0008, 2)
+    for sx in (-1, 1):
+        box('Бок ниши', (0.008, 0.030, 0.078), (sx * 0.084, -0.178, 0.095), 'plastic', p, 0.0006, 2)
+    # шильдик
+    box('Шильдик', (0.040, 0.0016, 0.009), (0, -0.1980, 0.014), 'gold_satin', p, 0.0006, 2)
+    badge_text(p)
+    # связка: шланги и жгут
+    tube('Шланг помпа-бойлер', [(-0.080, 0.060, 0.080), (-0.030, 0.090, 0.120), (0.020, 0.100, 0.160)], 0.0042, 'silicone', p)
+    tube('Шланг бойлер-группа', [(0.014, 0.070, 0.262), (-0.010, 0.020, 0.276), (-0.018, -0.070, 0.250)], 0.0042, 'silicone', p)
+    tube('Паровая линия', [(0.046, 0.060, 0.236), (0.070, -0.040, 0.252), (0.062, -0.150, 0.248)], 0.0036, 'silicone', p)
+    tube('Жгут', [(0.086, 0.170, 0.070), (0.086, 0.176, 0.200), (0.060, 0.176, 0.300)], 0.0048, 'plastic', p)
+    box('Стяжка', (0.014, 0.010, 0.004), (0.086, 0.172, 0.240), 'plastic', p, 0.0004, 1)
+    for i, zz in enumerate((0.100, 0.320)):
+        screw('Винт рамы', (0.088 if i else -0.088, -0.1965, zz), 'Y-', p, R=0.0028)
 
 
-def drip_tray(mats, root):
-    g = empty("Drip_Tray", parent=root)
-    rounded_rect_prism(
-        "Tray_Body", 0.170, 0.110, 0.016, 0.010,
-        loc=(0, FRONT + 0.010, 0.022), material=mats["chrome"], parent=g,
-    )
-    rounded_rect_prism(
-        "Tray_Well", 0.150, 0.090, 0.004, 0.008,
-        loc=(0, FRONT + 0.010, 0.031), material=mats["dark"], parent=g,
-    )
-    for i in range(5):
-        box(
-            f"Tray_Grate_{i + 1}", (0.140, 0.008, 0.004),
-            loc=(0, FRONT - 0.028 + i * 0.019, 0.034),
-            material=mats["gold"], bevel_w=0.0015, parent=g,
-        )
-    return g
+def badge_text(p):
+    cu = bpy.data.curves.new('Шильдик текст', 'FONT')
+    cu.body = 'CREMA'
+    cu.size = 0.0055
+    cu.align_x = 'CENTER'
+    cu.align_y = 'CENTER'
+    cu.extrude = 0.00018
+    cu.resolution_u = 2
+    ob = bpy.data.objects.new('Шильдик текст', cu)
+    link(ob)
+    ob.parent = p
+    ob.location = (0, -0.1986, 0.0135)
+    ob.rotation_euler = (math.radians(90), 0, 0)
+    bpy.context.view_layer.objects.active = ob
+    for o in bpy.context.selected_objects:
+        o.select_set(False)
+    ob.select_set(True)
+    bpy.ops.object.convert(target='MESH')
+    ob = bpy.context.view_layer.objects.active
+    ob.data.materials.append(M['chrome'])
 
 
-def bean_hopper(mats, root):
-    g = empty("Bean_Hopper", parent=root)
-    cylinder("Hopper_Collar", 0.054, 0.012, loc=(0, 0.130, 0.346), material=mats["dark"], parent=g)
-    cylinder("Hopper_Body", 0.046, 0.100, loc=(0, 0.130, 0.402), material=mats["smoke"], parent=g)
-    cylinder("Hopper_Ring", 0.049, 0.008, loc=(0, 0.130, 0.455), material=mats["chrome"], parent=g)
-    cylinder("Hopper_Lid", 0.050, 0.014, loc=(0, 0.130, 0.464), material=mats["dark"], parent=g)
-    cylinder("Hopper_Knob", 0.009, 0.012, loc=(0, 0.130, 0.476), material=mats["gold"], parent=g)
-    return g
+def panel_profile(sign, th=0.006, r_out=0.020):
+    """Сечение щёки в XY: боковина + заворот на лицо (рамка 31 мм)."""
+    xi = sign * (X1 - th)
+    ri = r_out - th
+    cx, cy = sign * (X1 - r_out), -0.175
+    pts = [(sign * X1, YB), (sign * X1, cy)]
+    for i in range(9):
+        a = -90.0 * i / 8.0
+        ar = math.radians(a)
+        pts.append((cx + sign * r_out * math.cos(ar), cy + r_out * math.sin(ar)))
+    pts.append((sign * 0.074, -0.195))
+    pts.append((sign * 0.074, -0.189))
+    for i in range(9):
+        a = -90.0 + 90.0 * i / 8.0
+        ar = math.radians(a)
+        pts.append((cx + sign * ri * math.cos(ar), cy + ri * math.sin(ar)))
+    pts.append((xi, YB))
+    return pts
 
 
-def water_tank(mats, root):
-    g = empty("Water_Tank", parent=root)
-    rounded_rect_prism(
-        "Tank_Body", 0.150, 0.240, 0.090, 0.014,
-        loc=(0, 0.150, 0.140), material=mats["tint"], parent=g,
-    )
-    rounded_rect_prism(
-        "Tank_Cap", 0.120, 0.030, 0.020, 0.008,
-        loc=(0, 0.150, 0.272), material=mats["chrome"], parent=g,
-    )
-    return g
+def build_panel(p, sign, title):
+    pts = panel_profile(sign)
+    prism_xy(title, pts, 0.030, 0.380, 'alu', p, 0.0016, 3)
+    # рёбра жёсткости и бобышки на внутренней стороне
+    xi = sign * (X1 - 0.006)
+    for z in (0.150, 0.250):
+        box('Ребро', (0.005, 0.230, 0.012), (xi - sign * 0.0025, 0.030, z), 'alu', p, 0.0006, 2)
+    for y in (-0.080, 0.080):
+        cyl('Бобышка', 0.0065, 0.010, (xi - sign * 0.005, y, 0.300), 'alu', p, seg=16, axis='X', bevel_w=0.0006)
+        screw('Винт щёки', (xi - sign * 0.0105, y, 0.300), 'X-' if sign > 0 else 'X+', p, R=0.0026)
+    box('Прокладка', (0.003, 0.210, 0.100), (xi - sign * 0.0015, 0.040, 0.205), 'felt', p, 0.0004, 1)
+    return p
 
 
-# ---------------------------------------------------------------- stage 3
+def build_front(p):
+    # верхняя плита (под группу) — выступает вперёд
+    prism_xz('Верхняя плита', rrect(0.160, 0.077, 0.006, 5, 0, 0.2785), -0.1935, -0.1915, 'gold', p, 0.0008, 3)
+    # нижняя плита — утоплена на 2 мм, шов 4 мм; под ней открытая ниша под чашку
+    prism_xz('Нижняя плита', rrect(0.160, 0.106, 0.006, 5, 0, 0.183), -0.1915, -0.1895, 'gold', p, 0.0008, 3)
+    for x in (-0.072, 0.072):
+        screw('Винт панели', (x, -0.1920, 0.140), 'Y-', p, R=0.0022)
 
 
-def internals(mats, root):
-    bu = empty("Brewing_Unit", parent=root)
-    cylinder("Brew_Chamber", 0.036, 0.070, loc=(0.030, -0.060, 0.148), material=mats["chrome"], parent=bu)
-    box("Brew_Block", (0.070, 0.056, 0.050), loc=(0.030, -0.020, 0.148), material=mats["dark"], bevel_w=0.006, parent=bu)
-    cylinder("Brew_Piston", 0.022, 0.040, loc=(0.030, -0.060, 0.198), material=mats["chrome"], parent=bu)
-
-    boiler = empty("Boiler", parent=root)
-    cylinder("Boiler_Body", 0.046, 0.150, loc=(-0.052, 0.040, 0.210), material=mats["copper"], parent=boiler)
-    cylinder("Boiler_Face", 0.048, 0.012, loc=(-0.052, 0.040, 0.286), material=mats["chrome"], parent=boiler)
-    cylinder("Boiler_Pipe", 0.009, 0.090, loc=(-0.052, 0.040, 0.120), material=mats["chrome"], parent=boiler)
-
-    pump = empty("Pump", parent=root)
-    cylinder("Pump_Body", 0.020, 0.070, loc=(-0.070, -0.090, 0.070), material=mats["dark"], parent=pump)
-    cylinder("Pump_Motor", 0.024, 0.030, loc=(-0.070, -0.090, 0.110), material=mats["chrome"], parent=pump)
-
-    grinder = empty("Grinder", parent=root)
-    cylinder("Grinder_Cones", 0.032, 0.050, loc=(0, 0.120, 0.316), material=mats["chrome"], parent=grinder)
-    cylinder("Grinder_Motor", 0.028, 0.060, loc=(0, 0.120, 0.262), material=mats["dark"], parent=grinder)
-    return bu, boiler, pump, grinder
+def build_deck(p):
+    prism_xy('Площадка', rrect(0.196, 0.380, 0.020), 0.330, 0.352, 'alu', p, 0.0020, 3)
+    box('Губа', (0.196, 0.013, 0.012), (0, -0.188, 0.326), 'alu_dark', p, 0.0012, 3)
+    prism_xy('Корона', rrect(0.190, 0.290, 0.024, 5, 0, 0.030), 0.352, 0.370, 'alu_dark', p, 0.0020, 3)
+    for i, y in enumerate((-0.060, -0.012, 0.036)):
+        cyl('Прут', 0.0022, 0.150, (-0.010, y, 0.3725), 'gold', p, seg=16, axis='X', bevel_w=0.0004)
+    # гнездо бункера
+    cyl('Обойма бункера', 0.052, 0.014, (0, 0.115, 0.371), 'gold_satin', p, seg=48, bevel_w=0.0012)
+    torus('Кольцо обоймы', 0.050, 0.0028, (0, 0.115, 0.377), 'gold', p, seg=48, rseg=8)
+    # ручка-скоба
+    tube('Скоба', [(-0.078, -0.075, 0.368), (-0.072, -0.075, 0.382),
+                   (-0.034, -0.075, 0.384), (-0.028, -0.075, 0.368)], 0.0072, 'gold', p, seg=12)
+    # мелкие детали на площадке
+    cyl('Стойка', 0.0045, 0.016, (0.088, -0.060, 0.374), 'chrome', p, seg=20, bevel_w=0.0006)
+    cyl('Маховик', 0.0095, 0.011, (0.062, 0.040, 0.373), 'gold', p, seg=28, bevel_w=0.0008)
+    torus('Обод маховика', 0.0095, 0.0016, (0.062, 0.040, 0.378), 'gold', p, seg=28, rseg=8)
 
 
-# ---------------------------------------------------------------- stage 4
+def build_controls(p):
+    prism_xz('Рамка дисплея', rrect(0.036, 0.074, 0.012, 6, 0, 0.197), -0.1968, -0.1950, 'chrome', p, 0.0006, 3)
+    prism_xz('Стекло дисплея', rrect(0.028, 0.066, 0.010, 6, 0, 0.197), -0.1979, -0.1968, 'display', p, 0.0006, 3)
+    prism_xz('Свечение', rrect(0.014, 0.0045, 0.002, 4, 0, 0.218), -0.1982, -0.1978, 'glow', p, 0.0)
+    cyl('Индикатор', 0.0022, 0.0006, (-0.026, -0.1981, 0.180), 'glow', p, seg=16, axis='Y', bevel_w=0.0)
+    # кнопки с ходом
+    for z in (0.185, 0.210):
+        torus('Гнездо кнопки', 0.0074, 0.0011, (-0.045, -0.1962, z), 'rubber', p, seg=28, rseg=8, axis='Y')
+        cyl('Кнопка', 0.0060, 0.0048, (-0.045, -0.1984, z), 'gold_satin', p, seg=28, axis='Y', bevel_w=0.0010, bevel_seg=3)
+    # клавиши
+    for z in (0.138, 0.147, 0.156):
+        prism_xz('Клавиша', rrect(0.034, 0.0055, 0.002, 4, -0.033, z), -0.1967, -0.1932, 'gold_satin', p, 0.0006, 2)
+
+
+def build_group(p):
+    prism_xz('Кожух группы', rrect(0.060, 0.068, 0.028, 8, -0.030, 0.284), -0.242, -0.1915, 'gold', p, 0.0050, 4)
+    prism_xz('Хромовая лента', rrect(0.0628, 0.0072, 0.0034, 6, -0.030, 0.305), -0.2440, -0.1910, 'steel', p, 0.0006, 2)
+    prism_xz('Шейка', rrect(0.042, 0.026, 0.008, 5, -0.030, 0.240), -0.2350, -0.1915, 'gold', p, 0.0010, 3)
+    cyl('Носик', 0.0080, 0.016, (-0.030, -0.232, 0.219), 'gold', p, seg=28, bevel_w=0.0010, r1=0.0052)
+    torus('Кольцо носика', 0.0130, 0.0022, (-0.030, -0.232, 0.2315), 'chrome', p, seg=32, rseg=8)
+    box('Рычаг группы', (0.024, 0.010, 0.006), (0.004, -0.214, 0.264), 'gold', p, 0.0012, 2, rot=(0, 0, math.radians(-8)))
+    for i in range(2):
+        screw('Винт группы', (-0.030 + 0.0, -0.2435, 0.252 + i * 0.060), 'Y-', p, R=0.0020)
+
+
+def build_portafilter(p):
+    cyl('Чаша', 0.0190, 0.017, (-0.030, -0.236, 0.207), 'chrome', p, seg=32, bevel_w=0.0012, bevel_seg=3)
+    cyl('Корзина', 0.0158, 0.015, (-0.030, -0.236, 0.2055), 'rubber', p, seg=28, bevel_w=0.0)
+    cyl('Носик рожка', 0.0068, 0.011, (-0.030, -0.236, 0.1935), 'chrome', p, seg=24, bevel_w=0.0006, r1=0.0046)
+    axis = Vector((0, -math.sin(math.radians(120)), math.cos(math.radians(120))))
+    start = Vector((-0.030, -0.238, 0.205))
+    mid = start + axis * 0.036
+    cyl('Рукоять', 0.0068, 0.062, tuple(mid), 'plastic', p, seg=24, rot=(math.radians(120), 0, 0), bevel_w=0.0016, bevel_seg=3)
+    fer = start + axis * 0.004
+    cyl('Латунная втулка', 0.0082, 0.009, tuple(fer), 'gold_satin', p, seg=24, rot=(math.radians(120), 0, 0), bevel_w=0.0008)
+    end = start + axis * 0.068
+    sphere('Торец рукояти', 0.0068, tuple(end), 'plastic', p, seg=16, rings=10)
+
+
+def build_steam(p):
+    prism_xz('Кожух крана', rrect(0.050, 0.068, 0.023, 8, 0.050, 0.284), -0.240, -0.1915, 'gold', p, 0.0046, 4)
+    prism_xz('Хромовая лента крана', rrect(0.0525, 0.0070, 0.0032, 6, 0.050, 0.305), -0.2422, -0.1910, 'steel', p, 0.0006, 2)
+    box('Клапан', (0.034, 0.026, 0.024), (0.050, -0.200, 0.248), 'gold', p, 0.0016, 3)
+    sphere('Шарнир', 0.0095, (0.052, -0.214, 0.233), 'chrome', p, seg=20, rings=12)
+    tube('Трубка пара', [(0.053, -0.218, 0.229), (0.058, -0.228, 0.196),
+                         (0.062, -0.236, 0.160), (0.060, -0.233, 0.140)],
+         0.0052, 'gold', p, seg=12, radii=[1.0, 0.95, 0.85, 0.72])
+    cyl('Наконечник', 0.0044, 0.008, (0.060, -0.233, 0.135), 'chrome', p, seg=20, bevel_w=0.0006)
+    cyl('Вентиль', 0.0100, 0.013, (0.050, -0.150, 0.380), 'gold', p, seg=24, bevel_w=0.0012)
+    torus('Обод вентиля', 0.0100, 0.0016, (0.050, -0.150, 0.386), 'gold', p, seg=24, rseg=8)
+    tube('Трубка подачи', [(0.030, -0.198, 0.252), (0.030, -0.207, 0.200), (0.031, -0.211, 0.142)],
+         0.0030, 'gold', p, seg=8)
+
+
+def build_tray(p):
+    prism_xy('Лоток', rrect(0.184, 0.096, 0.012, 5, 0, -0.146), 0.026, 0.050, 'gold', p, 0.0016, 3)
+    box('Борт перед', (0.184, 0.007, 0.010), (0, -0.1935, 0.053), 'gold', p, 0.0012, 2)
+    box('Борт зад', (0.184, 0.007, 0.010), (0, -0.0995, 0.053), 'gold', p, 0.0012, 2)
+    for sx in (-1, 1):
+        box('Борт бок', (0.007, 0.096, 0.010), (sx * 0.0885, -0.146, 0.053), 'gold', p, 0.0012, 2)
+    for i in range(8):
+        y = -0.186 + i * 0.0088
+        box('Прут решётки', (0.152, 0.0046, 0.0030), (0, y, 0.0505), 'gold', p, 0.0006, 2)
+    box('Вставка', (0.046, 0.022, 0.0016), (0.044, -0.180, 0.0512), 'rubber', p, 0.0004, 1)
+    cyl('Индикатор лотка', 0.0024, 0.0016, (-0.074, -0.180, 0.0510), 'red', p, seg=16, bevel_w=0.0)
+    box('Язычок лотка', (0.048, 0.005, 0.006), (0, -0.102, 0.055), 'plastic', p, 0.0006, 2)
+
+
+def build_tank(p):
+    prism_xy('Корпус бака', rrect(0.104, 0.056, 0.010), 0.048, 0.318, 'glass_tank', p, 0.0012, 2)
+    box('Крышка бака', (0.106, 0.058, 0.008), (-0.042, 0.156, 0.3225), 'soft', p, 0.0012, 2)
+    box('Ручка бака', (0.042, 0.010, 0.006), (-0.042, 0.156, 0.329), 'gold_satin', p, 0.0010, 2)
+    box('Окно уровня', (0.005, 0.0025, 0.180), (0.0095, 0.150, 0.180), 'glass_smoke', p, 0.0004, 1)
+    box('Вода', (0.098, 0.050, 0.170), (-0.042, 0.156, 0.135), 'glass_tank', p, 0.0)
+
+
+def build_hopper(p):
+    cyl('Обойма', 0.050, 0.014, (0, 0.115, 0.372), 'gold_satin', p, seg=48, bevel_w=0.0012)
+    cyl('Стакан', 0.048, 0.058, (0, 0.115, 0.408), 'glass_smoke', p, seg=40, bevel_w=0.0010, r1=0.043)
+    torus('Кольцо', 0.0428, 0.0030, (0, 0.115, 0.434), 'gold', p, seg=40, rseg=8)
+    sphere('Крышка', 0.045, (0, 0.115, 0.436), 'gold_satin', p, seg=28, rings=12, scale=(1, 1, 0.34))
+    cyl('Ручка крышки', 0.0085, 0.010, (0, 0.115, 0.4485), 'gold', p, seg=20, bevel_w=0.0010)
+    beans(p)
+
+
+def beans(p):
+    bm = bmesh.new()
+    rnd = random.Random(7)
+    for i in range(52):
+        a = rnd.uniform(0, 2 * math.pi)
+        rad = rnd.uniform(0, 0.034)
+        x = math.cos(a) * rad
+        y = 0.115 + math.sin(a) * rad * 0.55
+        z = 0.386 + rnd.uniform(0, 0.030)
+        s = rnd.uniform(0.85, 1.1)
+        add_blob(bm, 0.0058 * s, (x, y, z), (1.0, 0.72, 0.62), rnd.uniform(0, 6.28))
+    finish('Зёрна', bm, 'bean', p, 0.0, smooth=55)
+
+
+def add_blob(bm, r, loc, scale, rot):
+    seg, rings = 8, 5
+    ca, sa = math.cos(rot), math.sin(rot)
+    verts = []
+    for i in range(1, rings):
+        phi = math.pi * i / rings
+        ring = []
+        for j in range(seg):
+            th = 2 * math.pi * j / seg
+            x = r * math.sin(phi) * math.cos(th) * scale[0]
+            y = r * math.sin(phi) * math.sin(th) * scale[1]
+            z = r * math.cos(phi) * scale[2]
+            rx = x * ca - y * sa
+            ry = x * sa + y * ca
+            ring.append(bm.verts.new((rx + loc[0], ry + loc[1], z + loc[2])))
+        verts.append(ring)
+    top = bm.verts.new((loc[0], loc[1], loc[2] + r * scale[2]))
+    bot = bm.verts.new((loc[0], loc[1], loc[2] - r * scale[2]))
+    for i in range(len(verts) - 1):
+        for j in range(seg):
+            j2 = (j + 1) % seg
+            bm.faces.new((verts[i][j], verts[i + 1][j], verts[i + 1][j2], verts[i][j2]))
+    for j in range(seg):
+        j2 = (j + 1) % seg
+        bm.faces.new((top, verts[0][j2], verts[0][j]))
+        bm.faces.new((bot, verts[-1][j], verts[-1][j2]))
+
+
+def build_brew(p):
+    cyl('Камера', 0.029, 0.070, (-0.030, -0.120, 0.215), 'plastic', p, seg=32, bevel_w=0.0012, bevel_seg=3)
+    cyl('Крышка камеры', 0.031, 0.008, (-0.030, -0.120, 0.252), 'alu_dark', p, seg=32, bevel_w=0.0008)
+    cyl('Поршень', 0.022, 0.016, (-0.030, -0.120, 0.263), 'chrome', p, seg=28, bevel_w=0.0008)
+    box('Кулачок', (0.040, 0.010, 0.007), (0.000, -0.120, 0.271), 'gold', p, 0.0010, 2, rot=(0, 0, math.radians(14)))
+    box('Кронштейн', (0.070, 0.006, 0.006), (-0.030, -0.150, 0.181), 'alu_dark', p, 0.0006, 2)
+    cyl('Сетка', 0.0245, 0.0025, (-0.030, -0.120, 0.1815), 'steel', p, seg=32, bevel_w=0.0)
+    tube('Патрубок', [(-0.030, -0.120, 0.180), (-0.032, -0.152, 0.199), (-0.030, -0.188, 0.214)], 0.0040, 'brass', p, seg=8)
+    box('Фиксатор', (0.022, 0.008, 0.010), (-0.062, -0.120, 0.215), 'alu_dark', p, 0.0006, 2)
+    for z in (0.196, 0.236):
+        screw('Винт блока', (-0.030, -0.1500, z), 'Y-', p, R=0.0022)
+
+
+def build_boiler(p):
+    cyl('Корпус бойлера', 0.034, 0.150, (0.030, 0.080, 0.190), 'copper', p, seg=36, bevel_w=0.0014, bevel_seg=3)
+    cyl('Изоляция', 0.0365, 0.120, (0.030, 0.080, 0.190), 'felt', p, seg=36, bevel_w=0.0010)
+    cyl('Верхняя крышка', 0.030, 0.012, (0.030, 0.080, 0.271), 'copper', p, seg=32, bevel_w=0.0010)
+    cyl('Термостат', 0.012, 0.009, (0.030, 0.080, 0.281), 'plastic', p, seg=20, bevel_w=0.0006)
+    cyl('Штуцер', 0.0055, 0.016, (0.030, 0.118, 0.238), 'brass', p, seg=16, axis='Y', bevel_w=0.0004)
+    cyl('Штуцер', 0.0055, 0.016, (0.030, 0.042, 0.238), 'brass', p, seg=16, axis='Y', bevel_w=0.0004)
+    cyl('Дренаж', 0.0055, 0.014, (0.066, 0.080, 0.150), 'brass', p, seg=16, axis='X', bevel_w=0.0004)
+    cyl('Клапан', 0.0060, 0.014, (0.030, 0.118, 0.286), 'brass', p, seg=16, bevel_w=0.0004)
+    box('Хомут', (0.012, 0.070, 0.010), (0.058, 0.080, 0.300), 'steel', p, 0.0006, 2)
+
+
+def build_pump(p):
+    cyl('Корпус помпы', 0.019, 0.062, (-0.055, 0.075, 0.075), 'steel', p, seg=28, axis='X', bevel_w=0.0010)
+    box('Мотор', (0.044, 0.046, 0.044), (-0.090, 0.075, 0.075), 'plastic', p, 0.0016, 3)
+    cyl('Крыльчатка', 0.017, 0.008, (-0.114, 0.075, 0.075), 'alu_dark', p, seg=24, axis='X', bevel_w=0.0008)
+    for sy in (-1, 1):
+        cyl('Лапа', 0.006, 0.010, (-0.055, 0.075 + sy * 0.026, 0.049), 'rubber', p, seg=14, bevel_w=0.0004)
+    cyl('Патрубок помпы', 0.006, 0.016, (-0.055, 0.075, 0.110), 'brass', p, seg=16, bevel_w=0.0004)
+
+
+def build_grinder(p):
+    cyl('Корпус кофемолки', 0.026, 0.046, (0, 0.115, 0.348), 'alu', p, seg=32, bevel_w=0.0012, bevel_seg=3)
+    torus('Кольцо кофемолки', 0.0270, 0.0028, (0, 0.115, 0.370), 'gold', p, seg=32, rseg=8)
+    cyl('Мотор кофемолки', 0.022, 0.042, (0, 0.115, 0.311), 'plastic', p, seg=24, bevel_w=0.0010)
+    box('Кронштейн кофемолки', (0.070, 0.010, 0.008), (0, 0.150, 0.330), 'alu_dark', p, 0.0008, 2)
+    tube('Течка', [(0, 0.108, 0.330), (0.000, 0.050, 0.300), (-0.020, -0.030, 0.284), (-0.030, -0.096, 0.274)],
+         0.0072, 'alu', p, seg=8)
+    box('Заслонка', (0.016, 0.003, 0.014), (-0.030, -0.099, 0.274), 'chrome', p, 0.0006, 2)
+
+
+# ---------------------------------------------------------------- разборка
 
 EXPLODE = {
-    "Panel_Left": (-0.21, 0, 0),
-    "Panel_Right": (0.21, 0, 0),
-    "Panel_Top": (0, 0.03, 0.17),
-    "Panel_Front": (-0.02, -0.10, 0.26),
-    "Control_Panel": (-0.22, -0.08, 0.18),
-    "Group_Head": (0.10, -0.12, 0.26),
-    "Portafilter": (0.26, -0.06, 0.20),
-    "Steam_Wand": (0.30, -0.02, 0.06),
-    "Bean_Hopper": (0.06, 0.08, 0.22),
-    "Water_Tank": (0, 0.28, 0.02),
-    "Drip_Tray": (0.02, -0.06, -0.22),
-    "Brewing_Unit": (0.07, 0.06, -0.08),
-    "Boiler": (-0.17, 0.05, 0.03),
-    "Pump": (-0.16, 0.05, -0.09),
-    "Grinder": (0.09, 0.13, 0.15),
-    "Shell": (0, 0, 0),
+    'Корпус': (0.0, 0.0, 0.0),
+    'Левая панель': (-0.070, 0.0, -0.250),
+    'Правая панель': (0.070, 0.0, -0.250),
+    'Лицевая панель': (0.0, -0.150, 0.0),
+    'Верхняя площадка': (0.0, 0.030, 0.120),
+    'Панель управления': (0.010, -0.190, 0.010),
+    'Варочная группа': (-0.020, -0.230, 0.020),
+    'Держатель фильтра': (-0.030, -0.270, -0.040),
+    'Паровой кран': (0.070, -0.200, 0.0),
+    'Каплесборник': (0.0, -0.200, -0.060),
+    'Бак для воды': (-0.170, 0.050, 0.020),
+    'Контейнер для зёрен': (0.0, 0.020, 0.150),
+    'Заварочный блок': (0.0, -0.090, 0.030),
+    'Бойлер': (-0.080, 0.070, 0.060),
+    'Помпа': (-0.110, -0.060, -0.035),
+    'Кофемолка': (0.060, 0.060, 0.130),
 }
 
-
-def explode(root):
-    for o in root.children_recursive:
-        vec = EXPLODE.get(o.name)
-        if vec is not None:
-            o["explode"] = list(vec)
-    return EXPLODE
-
-
-# ---------------------------------------------------------------- stage 5
+WAVES = [
+    ['Левая панель', 'Правая панель', 'Верхняя площадка'],
+    ['Лицевая панель', 'Панель управления'],
+    ['Варочная группа', 'Держатель фильтра', 'Паровой кран', 'Каплесборник'],
+    ['Бак для воды', 'Контейнер для зёрен'],
+    ['Заварочный блок', 'Бойлер', 'Помпа', 'Кофемолка'],
+]
 
 
-def export_glb(root):
-    bpy.ops.object.select_all(action="DESELECT")
-    root.select_set(True)
-    for o in root.children_recursive:
-        o.select_set(True)
-    path = os.path.join(ROOT, "public", "model", "machine.glb")
-    os.makedirs(os.path.dirname(path), exist_ok=True)
-    bpy.ops.export_scene.gltf(
-        filepath=path,
-        export_format="GLB",
-        use_selection=True,
-        export_apply=True,
-        export_yup=True,
-        export_extras=True,
-        export_cameras=False,
-        export_lights=False,
-        export_animations=False,
-        export_materials="EXPORT",
-    )
-    return path
+def explode_all():
+    for name, vec in EXPLODE.items():
+        ob = ROOTS.get(name)
+        if ob is None:
+            print('MISSING PART', name)
+            continue
+        ob['explode'] = list(vec)
+    # порядок волн тоже уезжает в extras — пригодится сайту
+    for i, wave in enumerate(WAVES):
+        for name in wave:
+            ob = ROOTS.get(name)
+            if ob is not None:
+                ob['wave'] = i
 
 
-# ---------------------------------------------------------------- main
+# ---------------------------------------------------------------- сцена
+
+def reset_scene():
+    global SC, C
+    bpy.ops.wm.read_factory_settings(use_empty=True)
+    SC = bpy.context.scene
+    C = bpy.context
+    SC.render.engine = 'BLENDER_EEVEE'
+    SC.render.resolution_x = 1600
+    SC.render.resolution_y = 1200
+    SC.render.resolution_percentage = 100
+    SC.render.image_settings.file_format = 'PNG'
+    SC.render.image_settings.color_mode = 'RGBA'
+    SC.render.film_transparent = False
+    try:
+        SC.view_settings.view_transform = 'AgX'
+    except Exception:
+        pass
+    try:
+        SC.view_settings.look = 'None'
+    except Exception:
+        pass
+    try:
+        SC.eevee.taa_render_samples = 64
+        SC.eevee.use_raytracing = True
+    except Exception:
+        pass
+    try:
+        SC.eevee.ray_tracing_options.use_denoise = True
+    except Exception:
+        pass
+    w = bpy.data.worlds.new('W_Dark')
+    SC.world = w
+    w.use_nodes = True
+    bg = w.node_tree.nodes.get('Background')
+    nt = w.node_tree
+    tc = nt.nodes.new('ShaderNodeTexCoord')
+    sep = nt.nodes.new('ShaderNodeSeparateXYZ')
+    ramp = nt.nodes.new('ShaderNodeValToRGB')
+    el = ramp.color_ramp.elements
+    el[0].position = 0.0
+    el[0].color = (*srgb('#141110'), 1.0)
+    el[1].position = 0.40
+    el[1].color = (*srgb('#4A4033'), 1.0)
+    e2 = el.new(0.55)
+    e2.color = (*srgb('#8A7A62'), 1.0)
+    e3 = el.new(0.90)
+    e3.color = (*srgb('#3A322A'), 1.0)
+    nt.links.new(tc.outputs['Generated'], sep.inputs[0])
+    nt.links.new(sep.outputs['Z'], ramp.inputs['Fac'])
+    nt.links.new(ramp.outputs['Color'], bg.inputs['Color'])
+    bg.inputs[1].default_value = 0.95
+
+
+def aim(ob, target):
+    d = Vector(target) - Vector(ob.location)
+    ob.rotation_euler = d.to_track_quat('-Z', 'Y').to_euler()
+
+
+def add_light(name, loc, target, size, power, color=(1.0, 0.94, 0.86)):
+    d = bpy.data.lights.new(name, 'AREA')
+    d.shape = 'RECTANGLE'
+    d.size = size[0]
+    d.size_y = size[1]
+    d.energy = power
+    d.color = color
+    ob = bpy.data.objects.new(name, d)
+    link(ob)
+    ob.location = loc
+    aim(ob, target)
+    STUDIO.append(ob)
+    return ob
+
+
+def add_ground(z=-0.0006):
+    me = bpy.data.meshes.new('Ground')
+    bm = bmesh.new()
+    v = [bm.verts.new(p) for p in ((-4, -4, z), (4, -4, z), (4, 4, z), (-4, 4, z))]
+    bm.faces.new(v)
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new('Ground', me)
+    link(ob)
+    me.materials.append(mat_make('M_Ground', '#050403', 0.0, 0.90))
+    ob.visible_shadow = True
+    STUDIO.append(ob)
+    return ob
+
+
+def blob_mat():
+    """Мягкая контактная тень: радиальный градиент в альфу."""
+    mt = bpy.data.materials.new('M_Blob')
+    mt.use_nodes = True
+    nt = mt.node_tree
+    nt.nodes.clear()
+    out = nt.nodes.new('ShaderNodeOutputMaterial')
+    mix = nt.nodes.new('ShaderNodeMixShader')
+    tr = nt.nodes.new('ShaderNodeBsdfTransparent')
+    df = nt.nodes.new('ShaderNodeBsdfDiffuse')
+    df.inputs['Color'].default_value = (0.012, 0.010, 0.008, 1.0)
+    tc = nt.nodes.new('ShaderNodeTexCoord')
+    comb = nt.nodes.new('ShaderNodeCombineXYZ')
+    comb.inputs['X'].default_value = 0.5
+    comb.inputs['Y'].default_value = 0.5
+    sub = nt.nodes.new('ShaderNodeVectorMath')
+    sub.operation = 'SUBTRACT'
+    nt.links.new(tc.outputs['Generated'], sub.inputs[0])
+    nt.links.new(comb.outputs[0], sub.inputs[1])
+    leng = nt.nodes.new('ShaderNodeVectorMath')
+    leng.operation = 'LENGTH'
+    nt.links.new(sub.outputs['Vector'], leng.inputs[0])
+    ramp = nt.nodes.new('ShaderNodeValToRGB')
+    ramp.color_ramp.elements[0].position = 0.0
+    ramp.color_ramp.elements[0].color = (1.0, 1.0, 1.0, 1.0)
+    ramp.color_ramp.elements[1].position = 0.38
+    ramp.color_ramp.elements[1].color = (0.0, 0.0, 0.0, 1.0)
+    nt.links.new(leng.outputs['Value'], ramp.inputs['Fac'])
+    nt.links.new(ramp.outputs['Color'], mix.inputs['Fac'])
+    nt.links.new(tr.outputs[0], mix.inputs[1])
+    nt.links.new(df.outputs[0], mix.inputs[2])
+    nt.links.new(mix.outputs[0], out.inputs['Surface'])
+    return mt
+
+
+def add_shadow_blob(r=0.62):
+    me = bpy.data.meshes.new('Blob')
+    bm = bmesh.new()
+    v = [bm.verts.new(p) for p in ((-r, -r, 0.0), (r, -r, 0.0), (r, r, 0.0), (-r, r, 0.0))]
+    bm.faces.new(v)
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new('Blob', me)
+    ob.location = (0.0, -0.01, 0.0006)
+    link(ob)
+    me.materials.append(blob_mat())
+    STUDIO.append(ob)
+    return ob
+
+def add_wall():
+    me = bpy.data.meshes.new('Wall')
+    bm = bmesh.new()
+    v = [bm.verts.new(p) for p in ((-3, 1.45, 0), (3, 1.45, 0), (3, 1.45, 3), (-3, 1.45, 3))]
+    bm.faces.new(v)
+    bm.to_mesh(me)
+    bm.free()
+    ob = bpy.data.objects.new('Wall', me)
+    link(ob)
+    me.materials.append(mat_make('M_Wall', '#100C0A', 0.0, 0.72))
+    STUDIO.append(ob)
+    return ob
+
+
+def add_camera(loc, target, lens=70, name='Cam'):
+    d = bpy.data.cameras.new(name)
+    d.lens = lens
+    d.sensor_width = 36
+    ob = bpy.data.objects.new(name, d)
+    link(ob)
+    ob.location = loc
+    aim(ob, target)
+    SC.camera = ob
+    STUDIO.append(ob)
+    return ob
+
+
+def studio(stage):
+    """Три зоны света + тёмный пол; на разборке пол уезжает вниз."""
+    add_light('Key', (-1.05, -1.25, 1.28), (0.0, -0.02, 0.24), (2.20, 1.60), 110)
+    add_light('Fill', (1.25, -0.95, 0.52), (0.0, 0.0, 0.18), (1.40, 1.05), 45, (0.95, 0.92, 0.90))
+    add_light('Rim', (0.30, 1.30, 1.00), (0.0, 0.0, 0.22), (1.00, 0.70), 70, (1.0, 0.88, 0.74))
+    add_light('Cavity', (0.16, -0.13, 0.122), (0.0, -0.15, 0.05), (0.16, 0.09), 3.5, (1.0, 0.88, 0.72))
+    if stage == 4:
+        add_ground(-0.42)
+        add_camera((1.22, -1.52, 0.86), (0.01, 0.0, 0.12), 52)
+    else:
+        add_ground()
+        add_camera((-0.44, -1.68, 0.57), (0.0, 0.0, 0.215), 85)
+
+
+def render(path, transparent=False, size=(1600, 1200)):
+    SC.render.resolution_x, SC.render.resolution_y = size
+    SC.render.film_transparent = transparent
+    SC.render.filepath = path
+    bpy.ops.render.render(write_still=True)
+    print('RENDER', path)
+
+
+def poster():
+    """Постер 1200x1200 на Cycles: shadow catcher + прозрачный фон."""
+    SC.render.engine = 'CYCLES'
+    try:
+        SC.cycles.device = 'CPU'
+        SC.cycles.samples = 96
+        SC.cycles.use_denoising = True
+        SC.cycles.denoiser = 'OPENIMAGEDENOISE'
+    except Exception as e:
+        print('cycles opt', e)
+    try:
+        SC.cycles.max_bounces = 8
+        SC.cycles.transmission_bounces = 8
+        SC.cycles.glossy_bounces = 6
+    except Exception:
+        pass
+    for ob in [o for o in STUDIO if o.type == 'CAMERA']:
+        bpy.data.objects.remove(ob, do_unlink=True)
+        STUDIO.remove(ob)
+    g = bpy.data.objects.get('Ground')
+    if g is not None:
+        g.hide_render = True
+    # тень рисуется в вебе (blob-плейн в three.js), в постере — прозрачный PNG
+    add_camera((-0.34, -1.22, 0.32), (0.0, 0.015, 0.190), 72, 'PosterCam')
+    render(STILL, True, (1200, 1200))
+
+
+# ---------------------------------------------------------------- видимость
+
+FACE_PARTS = ['Лицевая панель', 'Панель управления', 'Варочная группа',
+              'Держатель фильтра', 'Паровой кран', 'Каплесборник',
+              'Бак для воды', 'Контейнер для зёрен']
+INNER_PARTS = ['Заварочный блок', 'Бойлер', 'Помпа', 'Кофемолка']
+SHELL_PARTS = ['Левая панель', 'Правая панель', 'Верхняя площадка']
+
+
+def walk(ob):
+    for ch in ob.children:
+        yield ch
+        yield from walk(ch)
+
+
+def visibility(stage):
+    hide = set()
+    if stage <= 1:
+        hide |= set(['Панель управления', 'Варочная группа', 'Держатель фильтра',
+                     'Паровой кран', 'Каплесборник', 'Бак для воды', 'Контейнер для зёрен'])
+        hide |= set(INNER_PARTS)
+    elif stage == 2:
+        hide |= set(INNER_PARTS)
+    elif stage == 3:
+        hide |= set(SHELL_PARTS) | set(['Лицевая панель', 'Панель управления',
+                                        'Варочная группа', 'Держатель фильтра',
+                                        'Паровой кран', 'Каплесборник'])
+    for name in hide:
+        ob = ROOTS.get(name)
+        if not ob:
+            continue
+        ob.hide_render = True
+        ob.hide_viewport = True
+        for ch in walk(ob):
+            ch.hide_render = True
+            ch.hide_viewport = True
+
+
+# ---------------------------------------------------------------- сборка
+
+def build_all():
+    root = bpy.data.objects.new('Машина', None)
+    root.empty_display_size = 0.06
+    link(root)
+    ROOTS['__root'] = root
+    build_chassis(part('Корпус'))
+    build_panel(part('Левая панель'), -1, 'Левая панель')
+    build_panel(part('Правая панель'), 1, 'Правая панель')
+    build_front(part('Лицевая панель'))
+    build_deck(part('Верхняя площадка'))
+    build_controls(part('Панель управления'))
+    build_group(part('Варочная группа'))
+    build_portafilter(part('Держатель фильтра'))
+    build_steam(part('Паровой кран'))
+    build_tray(part('Каплесборник'))
+    build_tank(part('Бак для воды'))
+    build_hopper(part('Контейнер для зёрен'))
+    build_brew(part('Заварочный блок'))
+    build_boiler(part('Бойлер'))
+    build_pump(part('Помпа'))
+    build_grinder(part('Кофемолка'))
+
+
+def export_glb():
+    for ob in list(STUDIO):
+        try:
+            bpy.data.objects.remove(ob, do_unlink=True)
+        except Exception:
+            pass
+    STUDIO.clear()
+    kw = dict(filepath=GLB, export_format='GLB', export_apply=True,
+              export_yup=True, export_extras=True, export_cameras=False,
+              export_lights=False, export_animations=False,
+              export_draco_mesh_compression_enable=False)
+    try:
+        bpy.ops.export_scene.gltf(**kw)
+    except TypeError as e:
+        print('gltf kwargs', e)
+        bpy.ops.export_scene.gltf(filepath=GLB, export_format='GLB')
+    print('GLB', GLB, os.path.getsize(GLB))
+
+
+def summary():
+    meshes = [o for o in bpy.data.objects if o.type == 'MESH']
+    faces = sum(len(o.data.polygons) for o in meshes)
+    parts = [n for n in ROOTS if n != '__root']
+    print('BLENDER_OK')
+    print(json.dumps({
+        'stage': STAGE,
+        'parts': parts,
+        'meshes': len(meshes),
+        'faces': faces,
+        'glb_bytes': os.path.getsize(GLB) if os.path.exists(GLB) else 0,
+        'explode': {n: list(ROOTS[n].get('explode', [])) for n in parts},
+    }, ensure_ascii=False))
 
 
 def main():
-    stage = int(get_arg("--stage", "1"))
     reset_scene()
-    mats = M()
-    root = stage1(mats)
-
-    if stage >= 2:
-        control_panel(mats, root)
-        group_head(mats, root)
-        steam_wand(mats, root)
-        drip_tray(mats, root)
-        bean_hopper(mats, root)
-        water_tank(mats, root)
-    if stage >= 3:
-        internals(mats, root)
-    if stage >= 4:
-        explode(root)
-
-    studio()
-    os.makedirs(PICS, exist_ok=True)
-    os.makedirs(os.path.dirname(BLEND), exist_ok=True)
-    render(os.path.join(PICS, f"model-stage{stage}.png"))
-    if stage >= 5:
-        # Прозрачный кадр для статичного постера в секции «Анатомия».
-        os.makedirs(os.path.join(ROOT, "public", "img"), exist_ok=True)
-        ground = bpy.data.objects.get("Ground")
-        if ground:
-            ground.hide_render = True
-        render(os.path.join(ROOT, "public", "img", "model-still.png"), transparent=True, size=(1200, 1200))
-        if ground:
-            ground.hide_render = False
-
-    glb = export_glb(root) if stage >= 5 else None
-    bpy.ops.wm.save_as_mainfile(filepath=BLEND)
-
-    data = []
-    for o in bpy.data.objects:
-        if o.type == "MESH":
-            data.append(
-                {
-                    "name": o.name,
-                    "loc": [round(v, 4) for v in o.location],
-                    "dims": [round(v, 4) for v in o.dimensions],
-                    "tris": sum(len(p.vertices) - 2 for p in o.data.polygons),
-                }
-            )
-    print("BLENDER_OK " + json.dumps({"stage": stage, "objects": data}))
+    materials()
+    build_all()
+    visibility(STAGE)
+    if STAGE >= 4:
+        explode_all()
+        for name, vec in EXPLODE.items():
+            ob = ROOTS.get(name)
+            if ob is not None and STAGE == 4:
+                ob.location = Vector(vec)
+    studio(STAGE)
+    render(os.path.join(PICS, 'model-stage%d.png' % STAGE))
+    if STAGE >= 5:
+        poster()
+        export_glb()
+        bpy.ops.wm.save_as_mainfile(filepath=BLEND)
+    summary()
 
 
-main()
+if __name__ == '__main__':
+    main()
+
+
