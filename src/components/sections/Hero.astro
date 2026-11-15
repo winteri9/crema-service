@@ -19,7 +19,7 @@ import { CONTACTS } from '../../data/site';
 
     <div class="hero__media">
       <img
-        src={`${import.meta.env.BASE_URL}img/hero.webp`}
+        src={`${import.meta.env.BASE_URL.replace(/\/?$/, '/')}img/hero.webp`}
         width="1600"
         height="1040"
         alt="Кофемашина в интерьере кофейни: тёмное дерево, золото, латунь"

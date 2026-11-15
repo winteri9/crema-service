@@ -26,7 +26,7 @@ import { ANATOMY, PARTS } from '../../data/parts';
       <canvas class="anatomy__canvas" data-viewer-canvas aria-label="Трёхмерная модель кофемашины"></canvas>
       <img
         class="anatomy__poster"
-        src={`${import.meta.env.BASE_URL}img/model-still.png`}
+        src={`${import.meta.env.BASE_URL.replace(/\/?$/, '/')}img/model-still.png`}
         width="1200"
         height="1200"
         alt="Корпус кофемашины в разрезе: варочная группа, бойлер, помпа, бак для воды"
