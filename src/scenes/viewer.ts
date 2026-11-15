@@ -447,7 +447,7 @@ export function initViewer(root: HTMLElement) {
       // если колонка вылезла за низ — подтягиваем вверх
       let over = 0;
       const last = col[col.length - 1];
-      if (last) over = Math.max(0, last.y + last.h / 2 - (size.h - 8));
+      if (last) over = Math.max(0, last.y + last.h / 2 - (size.h - 20));
       if (over > 0) for (const p of col) p.y -= over;
     }
 
@@ -455,7 +455,7 @@ export function initViewer(root: HTMLElement) {
       const off = 52;
       const tipX = p.x + p.side * off;
       const tipY = p.y;
-      const edgeX = tipX + p.side * 8;
+      const edgeX = tipX + p.side * 12;
       p.el.style.opacity = alpha.toFixed(3);
       p.el.style.transform = `translate(${Math.round(edgeX)}px, ${Math.round(tipY - p.h / 2)}px) translateX(${p.side < 0 ? '-100%' : '0'})`;
 
