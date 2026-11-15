@@ -327,6 +327,8 @@ export function initViewer(root: HTMLElement) {
     exploded = next;
     btn.textContent = next ? 'Собрать' : 'Разобрать';
     btn.setAttribute('aria-pressed', String(next));
+    // в разобранном виде машина должна стоять неподвижно — иначе подписи уезжают
+    if (next) controls.autoRotate = false;
 
     const state = { v: progress };
     gsap.killTweensOf(state);
