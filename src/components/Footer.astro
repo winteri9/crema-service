@@ -128,6 +128,14 @@ const isBlank = (v: string) => !v || v === '—' || v === '-';
     <div class="footer__bottom">
       <span class="mono">© {SITE.year} {SITE.brand}</span>
       <span class="footer__dash" aria-hidden="true"></span>
+      <a
+        class="footer__made mono"
+        href={CONTACTS.telegram}
+        target="_blank"
+        rel="noopener noreferrer"
+      >
+        Сделан VOIDCODE
+      </a>
       <span class="footer__legal mono">
         {FOOTER.legal.map((item) => <span class="footer__legal-item">{item}</span>)}
       </span>
@@ -418,6 +426,20 @@ const isBlank = (v: string) => !v || v === '—' || v === '-';
     cursor: default;
   }
 
+  /* авторство концепта: единственное место с золотом в нижней строке */
+  .footer__made {
+    color: var(--accent-text);
+    text-decoration: none;
+    white-space: nowrap;
+    transition: color var(--dur-1) var(--ease-out);
+  }
+
+  .footer__made:hover,
+  .footer__made:focus-visible {
+    color: var(--fg);
+    text-decoration: underline;
+    text-underline-offset: 3px;
+  }
   @media (min-width: 900px) {
     .footer__grid {
       grid-template-columns: minmax(0, 1.55fr) minmax(0, 0.75fr) minmax(0, 1.2fr);

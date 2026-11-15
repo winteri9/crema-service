@@ -1,0 +1,483 @@
+---
+/**
+ * Секция 08 — заявка. Источник текста: src/data/lead.ts.
+ *
+ * Смысл: клиент выбирает проблему из списка (или «Другое», тогда появляется
+ * поле описания) и оставляет номер. Отправка никуда не уходит — это концепт,
+ * поэтому вместо «спасибо» показываем пометку VOIDCODE и ссылку в Telegram.
+ *
+ * Одна колонка до 900px, две после: текст слева, форма справа. Поля на
+ * волосяной рамке, фокус — золотом по контуру (норма 3:1 для границ).
+ */
+import Arrow from '../Arrow.astro';
+import Cta from '../Cta.astro';
+import { LEAD } from '../../data/lead';
+import { CONTACTS } from '../../data/site';
+
+---
+
+<section class="sec surface-ink order" id="zayavka" aria-labelledby="lead-title">
+  <div class="shell sec__inner">
+    <div class="sec__num">{LEAD.n}</div>
+
+    <div class="order__wrap">
+      <div class="order__intro">
+        <p class="mono order__kicker">{LEAD.kicker}</p>
+        <h2 class="h2 order__title" id="lead-title">{LEAD.title}</h2>
+        <p class="order__text">{LEAD.lead}</p>
+      </div>
+
+      <form class="order__form" data-lead novalidate>
+        <div class="order__field">
+          <label class="mono order__label" for="lead-problem">{LEAD.selectLabel}</label>
+          <div class="order__select">
+            <select id="lead-problem" name="problem" data-lead-problem required>
+              <option value="" selected disabled>{LEAD.placeholder}</option>
+              {
+                LEAD.problems.map((item) => (
+                  <option value={item.value}>{item.label}</option>
+                ))
+              }
+            </select>
+            <svg class="order__chevron" width="12" height="8" viewBox="0 0 12 8" fill="none" aria-hidden="true">
+              <path d="M1 1.5 6 6.5l5-5" stroke="currentColor" stroke-width="1.4" stroke-linecap="square"></path>
+            </svg>
+          </div>
+          <p class="order__error" data-lead-error="problem" role="alert"></p>
+        </div>
+
+        <div class="order__field order__field--other" data-lead-other hidden>
+          <label class="mono order__label" for="lead-other">{LEAD.otherLabel}</label>
+          <textarea
+            class="order__input order__input--area"
+            id="lead-other"
+            name="other"
+            rows="3"
+            maxlength="400"
+            placeholder={LEAD.otherPlaceholder}
+            data-lead-detail></textarea>
+          <p class="order__error" data-lead-error="other" role="alert"></p>
+        </div>
+
+        <div class="order__field">
+          <label class="mono order__label" for="lead-phone">{LEAD.phoneLabel}</label>
+          <input
+            class="order__input"
+            id="lead-phone"
+            name="phone"
+            type="tel"
+            inputmode="tel"
+            autocomplete="tel"
+            placeholder={LEAD.phonePlaceholder}
+            data-lead-phone
+          />
+          <p class="order__error" data-lead-error="phone" role="alert"></p>
+        </div>
+
+        <div class="order__actions">
+          <button class="order__submit" type="submit">
+            <span>{LEAD.submit}</span>
+            <Arrow size={18} />
+          </button>
+          <p class="order__note mono">{LEAD.submitNote}</p>
+        </div>
+      </form>
+
+      <div class="order__done" data-lead-done tabindex="-1" hidden>
+        <p class="mono order__done-kicker">Концепт</p>
+        <h3 class="order__done-title">{LEAD.success.title}</h3>
+        <p class="order__done-text">{LEAD.success.text}</p>
+        <div class="order__done-actions">
+          <Cta href={CONTACTS.telegram} label={LEAD.success.cta} variant="solid" external />
+          <button class="order__again mono" type="button" data-lead-again>{LEAD.success.again}</button>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <span class="visually-hidden" role="status" aria-live="polite" data-lead-status></span>
+</section>
+
+<script>
+  import { LEAD } from '../../data/lead';
+
+  const otherValue = LEAD.problems[LEAD.problems.length - 1].value;
+
+  /** «+7 (999) 123-45-67» из любых цифр: 11 цифр с ведущей 7/8 или 10 без неё. */
+  const maskPhone = (raw: string): string => {
+    let digits = raw.replace(/\D/g, '');
+    if (digits.startsWith('8')) digits = `7${digits.slice(1)}`;
+    if (!digits.startsWith('7') && digits.length >= 10) digits = `7${digits}`;
+    if (digits.startsWith('7')) digits = digits.slice(0, 11);
+    else digits = digits.slice(0, 10);
+
+    const rest = digits.startsWith('7') ? digits.slice(1) : digits;
+    let out = digits.startsWith('7') ? '+7' : '';
+    if (rest.length) out += ` (${rest.slice(0, 3)}`;
+    if (rest.length >= 3) out += ')';
+    if (rest.length > 3) out += ` ${rest.slice(3, 6)}`;
+    if (rest.length > 6) out += `-${rest.slice(6, 8)}`;
+    if (rest.length > 8) out += `-${rest.slice(8, 10)}`;
+    return out.trim();
+  };
+
+  const digitsOf = (value: string): string => value.replace(/\D/g, '');
+
+  document.querySelectorAll<HTMLFormElement>('form[data-lead]').forEach((form) => {
+    const section = form.closest<HTMLElement>('.order');
+    const select = form.querySelector<HTMLSelectElement>('[data-lead-problem]');
+    const other = form.querySelector<HTMLElement>('[data-lead-other]');
+    const detail = form.querySelector<HTMLTextAreaElement>('[data-lead-detail]');
+    const phone = form.querySelector<HTMLInputElement>('[data-lead-phone]');
+    const done = section?.querySelector<HTMLElement>('[data-lead-done]');
+    const again = section?.querySelector<HTMLButtonElement>('[data-lead-again]');
+    const status = section?.querySelector<HTMLElement>('[data-lead-status]');
+    if (!select || !other || !detail || !phone || !done) return;
+
+    const error = (key: string): HTMLElement | null =>
+      form.querySelector<HTMLElement>(`[data-lead-error="${key}"]`);
+
+    const setError = (key: string, message: string): void => {
+      const node = error(key);
+      if (node) node.textContent = message;
+    };
+
+    const clearErrors = (): void => {
+      form.querySelectorAll<HTMLElement>('[data-lead-error]').forEach((node) => {
+        node.textContent = '';
+      });
+    };
+
+    const syncOther = (): void => {
+      const isOther = select.value === otherValue;
+      other.hidden = !isOther;
+      detail.required = isOther;
+    };
+
+    select.addEventListener('change', () => {
+      syncOther();
+      setError('problem', '');
+      if (select.value === otherValue) detail.focus();
+    });
+
+    phone.addEventListener('input', () => {
+      const caretAtEnd = phone.selectionStart === phone.value.length;
+      const masked = maskPhone(phone.value);
+      phone.value = masked;
+      if (caretAtEnd) phone.setSelectionRange(masked.length, masked.length);
+      setError('phone', '');
+    });
+
+    phone.addEventListener('blur', () => {
+      if (!phone.value) return;
+      const digits = digitsOf(phone.value);
+      if (digits.length < 10) setError('phone', LEAD.phoneError);
+    });
+
+    form.addEventListener('submit', (event) => {
+      event.preventDefault();
+      clearErrors();
+
+      let firstInvalid: HTMLElement | null = null;
+
+      if (!select.value) {
+        setError('problem', LEAD.problemError);
+        firstInvalid = select;
+      } else if (select.value === otherValue && !detail.value.trim()) {
+        setError('other', LEAD.otherError);
+        firstInvalid = detail;
+      }
+
+      if (digitsOf(phone.value).length < 10) {
+        setError('phone', LEAD.phoneError);
+        firstInvalid = firstInvalid ?? phone;
+      }
+
+      if (firstInvalid) {
+        firstInvalid.focus();
+        return;
+      }
+
+      const picked = select.options[select.selectedIndex]?.textContent?.trim() ?? '';
+      form.hidden = true;
+      done.hidden = false;
+      if (status) status.textContent = `${LEAD.success.title} ${LEAD.success.text}`;
+      done.focus({ preventScroll: true });
+      done.dataset.picked = picked;
+    });
+
+    again?.addEventListener('click', () => {
+      form.reset();
+      form.hidden = false;
+      done.hidden = true;
+      syncOther();
+      clearErrors();
+      select.focus();
+    });
+
+    syncOther();
+  });
+</script>
+
+<style>
+  .order__wrap {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: clamp(30px, 4vw, 46px);
+  }
+
+  .order__kicker {
+    color: var(--accent);
+    margin-bottom: 18px;
+  }
+
+  .order__title {
+    max-width: 15ch;
+  }
+
+  .order__text {
+    max-width: 42ch;
+    margin-top: 20px;
+    color: var(--fg-muted);
+    font-size: var(--fs-lead);
+    text-wrap: pretty;
+  }
+
+  /* --- форма: одна колонка полей на волосяных рамках --- */
+  .order__form {
+    display: grid;
+    row-gap: 20px;
+    align-content: start;
+  }
+
+  /* [hidden] должен побеждать display:grid выше */
+  .order__form[hidden] {
+    display: none;
+  }
+
+  .order__field {
+    display: grid;
+    row-gap: 9px;
+  }
+
+  .order__field[hidden] {
+    display: none;
+  }
+
+  .order__label {
+    color: var(--fg-muted);
+  }
+
+  .order__select {
+    position: relative;
+    display: block;
+  }
+
+  .order__select select,
+  .order__input {
+    width: 100%;
+    min-height: 56px;
+    padding: 0 16px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--paper) 3%, var(--ink));
+    color: var(--fg);
+    font-family: var(--font-text);
+    font-size: 1rem;
+    line-height: 1.3;
+    appearance: none;
+    transition:
+      border-color var(--dur-2) var(--ease-out),
+      background-color var(--dur-2) var(--ease-out);
+  }
+
+  .order__input--area {
+    min-height: 104px;
+    padding: 14px 16px;
+    resize: vertical;
+  }
+
+  .order__select select:hover,
+  .order__input:hover {
+    border-color: color-mix(in srgb, var(--line) 60%, var(--paper));
+  }
+
+  .order__select select:focus-visible,
+  .order__input:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 2px;
+    border-color: var(--accent);
+  }
+
+  .order__select select:invalid {
+    color: var(--fg-muted);
+  }
+
+  .order__select select option {
+    background: var(--ink-2);
+    color: var(--fg);
+  }
+
+  .order__chevron {
+    position: absolute;
+    top: 50%;
+    right: 18px;
+    color: var(--accent);
+    transform: translateY(-50%);
+    pointer-events: none;
+  }
+
+  .order__input::placeholder {
+    color: color-mix(in srgb, var(--fg-muted) 78%, transparent);
+  }
+
+  .order__error {
+    min-height: 1.1em;
+    color: color-mix(in srgb, var(--accent) 82%, var(--paper));
+    font-size: 0.8125rem;
+  }
+
+  /* --- кнопка: та же геометрия, что у Cta, но это <button> --- */
+  .order__actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 14px 22px;
+    margin-top: 4px;
+  }
+
+  .order__submit {
+    position: relative;
+    display: inline-flex;
+    align-items: center;
+    gap: 18px;
+    min-height: 56px;
+    padding: 0 26px;
+    border: 1px solid var(--accent);
+    border-radius: var(--radius);
+    background: var(--accent);
+    color: var(--on-accent);
+    font-family: var(--font-mono);
+    font-size: var(--fs-mono-l);
+    font-weight: 500;
+    letter-spacing: 0.13em;
+    line-height: 1;
+    text-transform: uppercase;
+    cursor: pointer;
+    transition:
+      background-color var(--dur-2) var(--ease-out),
+      color var(--dur-2) var(--ease-out),
+      transform var(--dur-2) var(--ease-out);
+  }
+
+  .order__submit::after {
+    content: '';
+    position: absolute;
+    inset: -4px;
+    border: 1px solid color-mix(in srgb, var(--accent) 34%, transparent);
+    border-radius: var(--radius);
+    pointer-events: none;
+    transition: inset var(--dur-2) var(--ease-out);
+  }
+
+  .order__submit:hover,
+  .order__submit:focus-visible {
+    background: transparent;
+    color: var(--accent);
+  }
+
+  .order__submit:hover::after,
+  .order__submit:focus-visible::after {
+    inset: -7px;
+  }
+
+  .order__note {
+    max-width: 30ch;
+    color: color-mix(in srgb, var(--fg-muted) 82%, transparent);
+    line-height: 1.5;
+  }
+
+  /* --- ответ: это концепт VOIDCODE --- */
+  .order__done {
+    display: grid;
+    align-content: start;
+    row-gap: 16px;
+    padding: clamp(22px, 3vw, 32px);
+    border: 1px solid color-mix(in srgb, var(--accent) 34%, var(--rule));
+    border-radius: var(--radius);
+    background: color-mix(in srgb, var(--paper) 4%, var(--ink));
+  }
+
+  .order__done[hidden] {
+    display: none;
+  }
+
+  .order__done:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: 4px;
+  }
+
+  .order__done-kicker {
+    color: var(--accent);
+  }
+
+  .order__done-title {
+    font-family: var(--font-display);
+    font-size: clamp(1.5rem, 2.4vw, 2.1rem);
+    font-weight: 800;
+    line-height: 1.05;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+
+  .order__done-text {
+    max-width: 46ch;
+    color: var(--fg-muted);
+    font-size: 0.9688rem;
+    text-wrap: pretty;
+  }
+
+  .order__done-actions {
+    display: flex;
+    flex-wrap: wrap;
+    align-items: center;
+    gap: 16px 26px;
+    margin-top: 6px;
+  }
+
+  .order__again {
+    min-height: 44px;
+    padding: 0;
+    border: 0;
+    background: none;
+    color: var(--fg-muted);
+    text-decoration: underline;
+    text-underline-offset: 4px;
+    cursor: pointer;
+    transition: color var(--dur-1) var(--ease-out);
+  }
+
+  .order__again:hover,
+  .order__again:focus-visible {
+    color: var(--accent);
+  }
+
+  @media (min-width: 900px) {
+    .order__wrap {
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      column-gap: var(--gutter);
+      row-gap: 0;
+      align-items: start;
+    }
+
+    .order__intro {
+      grid-column: 1 / 6;
+      padding-right: 32px;
+    }
+
+    .order__form,
+    .order__done {
+      grid-column: 7 / 13;
+    }
+  }
+</style>
