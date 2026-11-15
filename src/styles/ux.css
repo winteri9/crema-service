@@ -1,0 +1,95 @@
+/**
+ * Слой взаимодействия и движения поверх базовой вёрстки.
+ *
+ * Правила слоя:
+ *   1. Ничего не диктует раскладку: только opacity, transform, цвет, тени.
+ *   2. Любое скрытие живёт под html.js:not(.reduce) — без JS и при
+ *      prefers-reduced-motion контент виден сразу (принцип 7).
+ *   3. Смещения маленькие (8–14px): это ритм, а не шоу.
+ *
+ * Motion: один easing на все появления — var(--ease-out).
+ * UI-правила: фокус всегда виден, цели ≥ 44px, цифры табличные.
+ */
+
+/* --- появление при скролле --- */
+html.js:not(.reduce) [data-reveal] {
+  opacity: 0;
+  transform: translate3d(0, 14px, 0);
+  transition:
+    opacity var(--dur-4) var(--ease-out),
+    transform var(--dur-4) var(--ease-out);
+  transition-delay: calc(var(--i, 0) * 55ms);
+  will-change: opacity, transform;
+}
+
+html.js:not(.reduce) [data-reveal='soft'] {
+  transform: none;
+  filter: none;
+}
+
+html.js:not(.reduce) [data-reveal].is-in {
+  opacity: 1;
+  transform: none;
+  will-change: auto;
+}
+
+/* --- ссылки: подчёркивание растёт от левого края --- */
+.link-underline {
+  position: relative;
+  text-decoration: none;
+}
+
+.link-underline::after {
+  content: '';
+  position: absolute;
+  inset-inline: 0;
+  bottom: -3px;
+  height: 1px;
+  background: currentColor;
+  transform: scaleX(0);
+  transform-origin: left;
+  transition: transform var(--dur-2) var(--ease-out);
+}
+
+.link-underline:hover::after,
+.link-underline:focus-visible::after {
+  transform: scaleX(1);
+}
+
+/* --- числовые подписи не дёргаются --- */
+.mono,
+.sec__num {
+  font-variant-numeric: tabular-nums;
+}
+
+/* --- аккуратный фокус на тёмном --- */
+:focus-visible {
+  outline-offset: 3px;
+  border-radius: 1px;
+}
+
+/* --- выделение мышью на бумаге читаемее --- */
+::selection {
+  background: var(--accent);
+  color: var(--ink);
+}
+
+/* --- полоса прокрутки в тон фона --- */
+@supports (scrollbar-color: auto) {
+  html {
+    scrollbar-color: #3a3227 var(--ink);
+    scrollbar-width: thin;
+  }
+}
+
+/* --- маркер-точка для служебных строк (генерический паттерн 21st: status dot) --- */
+.dot {
+  display: inline-block;
+  width: 5px;
+  height: 5px;
+  margin-right: 8px;
+  border-radius: 50%;
+  background: var(--accent);
+  vertical-align: middle;
+  box-shadow: 0 0 0 3px rgba(216, 162, 74, 0.12);
+}

@@ -90,7 +90,7 @@ def link(ob):
 
 def mat_make(name, color, metallic=0.0, rough=0.5, alpha=1.0,
              emis=None, emis_str=0.0, coat=0.0, coat_rough=0.08,
-             transmission=0.0, ior=1.5):
+             transmission=0.0, ior=1.5, rough_var=None):
     m = bpy.data.materials.get(name)
     if m:
         return m
@@ -115,6 +115,22 @@ def mat_make(name, color, metallic=0.0, rough=0.5, alpha=1.0,
         m.use_backface_culling = False
     m.roughness = rough
     m.metallic = metallic
+    if rough_var:
+        # металл без шума в шероховатости выглядит пластиковым
+        lo, hi, scale = rough_var
+        nt = m.node_tree
+        tex = nt.nodes.new('ShaderNodeTexCoord')
+        noi = nt.nodes.new('ShaderNodeTexNoise')
+        noi.inputs['Scale'].default_value = scale
+        noi.inputs['Detail'].default_value = 3.0
+        ramp = nt.nodes.new('ShaderNodeValToRGB')
+        ramp.color_ramp.elements[0].position = 0.32
+        ramp.color_ramp.elements[0].color = (lo, lo, lo, 1.0)
+        ramp.color_ramp.elements[1].position = 0.68
+        ramp.color_ramp.elements[1].color = (hi, hi, hi, 1.0)
+        nt.links.new(tex.outputs['Generated'], noi.inputs['Vector'])
+        nt.links.new(noi.outputs['Fac'], ramp.inputs['Fac'])
+        nt.links.new(ramp.outputs['Color'], b.inputs['Roughness'])
     return m
 
 
@@ -122,25 +138,29 @@ M = {}
 
 
 def materials():
-    M['alu'] = mat_make('M_Alu_Body', '#5A5248', 0.88, 0.36, coat=0.20, coat_rough=0.10)
-    M['alu_dark'] = mat_make('M_Alu_Frame', '#2A2521', 0.78, 0.44)
-    M['gold'] = mat_make('M_Gold', '#E5B45E', 1.0, 0.22, coat=0.45, coat_rough=0.06)
+    M['alu'] = mat_make('M_Alu_Body', '#565049', 0.88, 0.31, coat=0.26, coat_rough=0.10, rough_var=(0.28, 0.34, 220.0))
+    M['alu_dark'] = mat_make('M_Alu_Frame', '#232322', 0.78, 0.44, rough_var=(0.40, 0.48, 200.0))
+    M['gold'] = mat_make('M_Gold', '#E5B45E', 1.0, 0.20, coat=0.45, coat_rough=0.06, rough_var=(0.17, 0.23, 320.0))
     M['gold_satin'] = mat_make('M_Gold_Satin', '#C08A33', 1.0, 0.30, coat=0.28, coat_rough=0.10)
     M['chrome'] = mat_make('M_Chrome', '#E9E5DD', 1.0, 0.055)
     M['steel'] = mat_make('M_Steel', '#9C9891', 1.0, 0.22)
     M['plastic'] = mat_make('M_Plastic_Dark', '#171410', 0.0, 0.40, coat=0.25, coat_rough=0.12)
     M['soft'] = mat_make('M_Plastic_Soft', '#221E19', 0.0, 0.68)
     M['rubber'] = mat_make('M_Rubber', '#0C0B0A', 0.0, 0.88)
-    M['glass_tank'] = mat_make('M_Glass_Tank', '#9FB0B4', 0.0, 0.06, alpha=0.15,
+    M['glass_tank'] = mat_make('M_Glass_Tank', '#AFBCBE', 0.0, 0.05, alpha=0.10,
                                transmission=0.0, coat=0.45, coat_rough=0.03)
-    M['glass_smoke'] = mat_make('M_Glass_Smoke', '#4E483F', 0.0, 0.10, alpha=0.24, coat=0.5, coat_rough=0.03)
+    M['glass_smoke'] = mat_make('M_Glass_Smoke', '#3E3930', 0.0, 0.08, alpha=0.20, coat=0.5, coat_rough=0.03)
+    M['water'] = mat_make('M_Water', '#8FA6A4', 0.0, 0.12, alpha=0.42, coat=0.6, coat_rough=0.02)
     M['display'] = mat_make('M_Glass_Display', '#0A0B0D', 0.25, 0.05, coat=1.0, coat_rough=0.02)
     M['glow'] = mat_make('M_Display_Glow', '#F2C06A', 0.0, 0.30, emis='#FFC879', emis_str=2.6)
     M['copper'] = mat_make('M_Copper', '#B06A3C', 1.0, 0.30)
     M['brass'] = mat_make('M_Brass', '#C08B45', 1.0, 0.26)
     M['felt'] = mat_make('M_Felt', '#2A2722', 0.0, 0.95)
-    M['silicone'] = mat_make('M_Silicone', '#9A948A', 0.0, 0.55)
-    M['bean'] = mat_make('M_Bean', '#3B2416', 0.0, 0.42)
+    M['silicone'] = mat_make('M_Silicone', '#3B3833', 0.0, 0.52, coat=0.10, coat_rough=0.20)
+    M['bean'] = mat_make('M_Bean', '#2A1809', 0.0, 0.66)
+    M['bean_d'] = mat_make('M_Bean_Dark', '#2B1A0C', 0.0, 0.60)
+    M['bean_m'] = mat_make('M_Bean_Medium', '#3E2511', 0.0, 0.56)
+    M['bean_l'] = mat_make('M_Bean_Light', '#54341A', 0.0, 0.54)
     M['red'] = mat_make('M_Led_Red', '#C0392B', 0.0, 0.40, emis='#FF3B22', emis_str=1.6)
 
 
@@ -421,12 +441,36 @@ def build_chassis(p):
     # шильдик
     box('Шильдик', (0.040, 0.0016, 0.009), (0, -0.1980, 0.014), 'gold_satin', p, 0.0006, 2)
     badge_text(p)
-    # связка: шланги и жгут
-    tube('Шланг помпа-бойлер', [(-0.080, 0.060, 0.080), (-0.030, 0.090, 0.120), (0.020, 0.100, 0.160)], 0.0042, 'silicone', p)
-    tube('Шланг бойлер-группа', [(0.014, 0.070, 0.262), (-0.010, 0.020, 0.276), (-0.018, -0.070, 0.250)], 0.0042, 'silicone', p)
-    tube('Паровая линия', [(0.046, 0.060, 0.236), (0.070, -0.040, 0.252), (0.062, -0.150, 0.248)], 0.0036, 'silicone', p)
+    # подсветка ниши под чашку (тонкая лента)
+    box('Подсветка ниши', (0.150, 0.004, 0.0025), (0, -0.1740, 0.1272), 'glow', p, 0.0002, 1)
+    # гидравлика: шланг от порта к порту, на концах — штуцеры и хомуты
+    tube('Шланг помпа-бойлер', [(-0.055, 0.075, 0.112), (-0.050, 0.066, 0.140),
+                                (-0.012, 0.040, 0.182), (0.030, 0.030, 0.230)], 0.0048, 'silicone', p)
+    cyl('Штуцер помпы', 0.0062, 0.010, (-0.055, 0.075, 0.116), 'brass', p, seg=16, bevel_w=0.0004)
+    cyl('Штуцер бойлера', 0.0062, 0.014, (0.030, 0.030, 0.238), 'brass', p, seg=16, axis='Y', bevel_w=0.0004)
+    torus('Хомут шланга', 0.0072, 0.0013, (-0.055, 0.075, 0.124), 'steel', p, seg=20, rseg=6)
+    torus('Хомут шланга', 0.0072, 0.0013, (0.030, 0.022, 0.234), 'steel', p, seg=20, rseg=6, axis='Y')
+
+    tube('Шланг бойлер-группа', [(0.014, 0.080, 0.276), (0.000, 0.030, 0.296),
+                                  (-0.026, -0.060, 0.288), (-0.030, -0.120, 0.256)], 0.0048, 'silicone', p)
+    cyl('Штуцер крышки', 0.0062, 0.008, (0.014, 0.080, 0.278), 'brass', p, seg=16, bevel_w=0.0004)
+    torus('Хомут шланга', 0.0072, 0.0013, (0.014, 0.080, 0.284), 'steel', p, seg=20, rseg=6)
+    torus('Хомут шланга', 0.0072, 0.0013, (-0.030, -0.120, 0.250), 'steel', p, seg=20, rseg=6)
+
+    tube('Паровая линия', [(0.030, 0.118, 0.290), (0.056, 0.040, 0.296),
+                            (0.052, -0.100, 0.276), (0.050, -0.184, 0.256)], 0.0042, 'silicone', p)
+    cyl('Штуцер пара', 0.0052, 0.010, (0.030, 0.118, 0.292), 'brass', p, seg=14, bevel_w=0.0003)
+
+    tube('Дренаж группы', [(-0.030, -0.120, 0.176), (-0.026, -0.150, 0.120),
+                            (-0.012, -0.156, 0.062)], 0.0042, 'silicone', p)
+
+    # электрика
     tube('Жгут', [(0.086, 0.170, 0.070), (0.086, 0.176, 0.200), (0.060, 0.176, 0.300)], 0.0048, 'plastic', p)
     box('Стяжка', (0.014, 0.010, 0.004), (0.086, 0.172, 0.240), 'plastic', p, 0.0004, 1)
+    tube('Кабель помпы', [(-0.070, 0.100, 0.078), (-0.020, 0.150, 0.092), (0.070, 0.176, 0.122)], 0.0026, 'plastic', p, seg=6)
+    tube('Кабель бойлера', [(0.040, 0.104, 0.250), (0.060, 0.140, 0.228), (0.080, 0.176, 0.180)], 0.0026, 'plastic', p, seg=6)
+    box('Реле', (0.030, 0.014, 0.026), (0.060, 0.181, 0.142), 'plastic', p, 0.0008, 2)
+    box('Клеммник', (0.052, 0.012, 0.010), (-0.058, 0.182, 0.102), 'plastic', p, 0.0006, 2)
     for i, zz in enumerate((0.100, 0.320)):
         screw('Винт рамы', (0.088 if i else -0.088, -0.1965, zz), 'Y-', p, R=0.0028)
 
@@ -475,7 +519,7 @@ def panel_profile(sign, th=0.006, r_out=0.020):
 
 def build_panel(p, sign, title):
     pts = panel_profile(sign)
-    prism_xy(title, pts, 0.030, 0.380, 'alu', p, 0.0016, 3)
+    prism_xy(title, pts, 0.030, 0.380, 'alu', p, 0.0028, 4)
     # рёбра жёсткости и бобышки на внутренней стороне
     xi = sign * (X1 - 0.006)
     for z in (0.150, 0.250):
@@ -515,17 +559,26 @@ def build_deck(p):
 
 
 def build_controls(p):
-    prism_xz('Рамка дисплея', rrect(0.036, 0.074, 0.012, 6, 0, 0.197), -0.1968, -0.1950, 'chrome', p, 0.0006, 3)
-    prism_xz('Стекло дисплея', rrect(0.028, 0.066, 0.010, 6, 0, 0.197), -0.1979, -0.1968, 'display', p, 0.0006, 3)
-    prism_xz('Свечение', rrect(0.014, 0.0045, 0.002, 4, 0, 0.218), -0.1982, -0.1978, 'glow', p, 0.0)
-    cyl('Индикатор', 0.0022, 0.0006, (-0.026, -0.1981, 0.180), 'glow', p, seg=16, axis='Y', bevel_w=0.0)
+    # окно уровня воды: прорезь в золотой плите, за ней стекло и вода с мениском
+    prism_xz('Рамка окна уровня', rrect(0.030, 0.078, 0.012, 6, -0.020, 0.199), -0.1968, -0.1950, 'chrome', p, 0.0006, 3)
+    prism_xz('Стекло окна уровня', rrect(0.022, 0.070, 0.010, 6, -0.020, 0.199), -0.1979, -0.1968, 'glass_tank', p, 0.0006, 3)
+    prism_xz('Вода в окне', rrect(0.019, 0.040, 0.008, 5, -0.020, 0.184), -0.1982, -0.1979, 'water', p, 0.0)
+    prism_xz('Мениск', rrect(0.019, 0.0026, 0.001, 4, -0.020, 0.2042), -0.1984, -0.1982, 'water', p, 0.0)
+    for z in (0.172, 0.184, 0.196, 0.208, 0.220):
+        box('Риска уровня', (0.006, 0.0008, 0.0008), (0.0135, -0.1983, z), 'gold_satin', p, 0.0)
+
+    # дисплей — маленький экранчик над клавишами
+    prism_xz('Рамка дисплея', rrect(0.050, 0.020, 0.006, 6, -0.020, 0.1585), -0.1968, -0.1950, 'chrome', p, 0.0006, 3)
+    prism_xz('Стекло дисплея', rrect(0.043, 0.014, 0.005, 6, -0.020, 0.1585), -0.1977, -0.1968, 'display', p, 0.0006, 3)
+    prism_xz('Свечение', rrect(0.026, 0.0035, 0.0016, 4, -0.020, 0.1605), -0.1980, -0.1977, 'glow', p, 0.0)
+    cyl('Индикатор', 0.0020, 0.0006, (0.008, -0.1980, 0.1565), 'glow', p, seg=16, axis='Y', bevel_w=0.0)
     # кнопки с ходом
-    for z in (0.185, 0.210):
-        torus('Гнездо кнопки', 0.0074, 0.0011, (-0.045, -0.1962, z), 'rubber', p, seg=28, rseg=8, axis='Y')
-        cyl('Кнопка', 0.0060, 0.0048, (-0.045, -0.1984, z), 'gold_satin', p, seg=28, axis='Y', bevel_w=0.0010, bevel_seg=3)
+    for z in (0.135, 0.118):
+        torus('Гнездо кнопки', 0.0074, 0.0011, (-0.058, -0.1962, z), 'rubber', p, seg=28, rseg=8, axis='Y')
+        cyl('Кнопка', 0.0060, 0.0048, (-0.058, -0.1984, z), 'gold_satin', p, seg=28, axis='Y', bevel_w=0.0010, bevel_seg=3)
     # клавиши
-    for z in (0.138, 0.147, 0.156):
-        prism_xz('Клавиша', rrect(0.034, 0.0055, 0.002, 4, -0.033, z), -0.1967, -0.1932, 'gold_satin', p, 0.0006, 2)
+    for z in (0.1385, 0.1455, 0.1525):
+        prism_xz('Клавиша', rrect(0.030, 0.0042, 0.0018, 4, 0.038, z), -0.1965, -0.1932, 'gold_satin', p, 0.0005, 2)
 
 
 def build_group(p):
@@ -600,23 +653,58 @@ def build_hopper(p):
 
 
 def beans(p):
+    # стакан заполняется целиком, но без «военной» сетки: позиции и повороты вразброс
     bm = bmesh.new()
-    rnd = random.Random(7)
-    for i in range(52):
-        a = rnd.uniform(0, 2 * math.pi)
-        rad = rnd.uniform(0, 0.034)
-        x = math.cos(a) * rad
-        y = 0.115 + math.sin(a) * rad * 0.55
-        z = 0.386 + rnd.uniform(0, 0.030)
-        s = rnd.uniform(0.85, 1.1)
-        add_blob(bm, 0.0058 * s, (x, y, z), (1.0, 0.72, 0.62), rnd.uniform(0, 6.28))
-    finish('Зёрна', bm, 'bean', p, 0.0, smooth=55)
+    # три оттенка: однородная тёмная масса читается как шоколад
+    bms = (bmesh.new(), bmesh.new(), bmesh.new())
+    rnd = random.Random(11)
+    z0, z1 = 0.3815, 0.4185
+    layers = 6
+    for li in range(layers):
+        t = li / (layers - 1)
+        z = z0 + (z1 - z0) * t
+        R = 0.0405 - 0.0045 * t
+        step = 0.0084
+        n = int(R / step) + 2
+        for ix in range(-n, n + 1):
+            for iy in range(-n, n + 1):
+                jx = rnd.uniform(-0.0032, 0.0032)
+                jy = rnd.uniform(-0.0032, 0.0032)
+                x = ix * step + jx
+                y = iy * step * 0.94 + jy
+                if x * x + y * y > (R - 0.0022) ** 2:
+                    continue
+                s = rnd.uniform(0.72, 1.22)
+                rot = (rnd.uniform(-1.2, 1.2), rnd.uniform(-1.2, 1.2), rnd.uniform(0, 6.283))
+                g = rnd.choice(bms)
+                add_blob(g, 0.0054 * s, (x, 0.115 + y, z + rnd.uniform(-0.0040, 0.0040)),
+                         (1.0, rnd.uniform(0.64, 0.78), rnd.uniform(0.50, 0.66)), rot)
+    for i, g in enumerate(bms):
+        finish('Зёрна %d' % (i + 1), g, ('bean_d', 'bean_m', 'bean_l')[i], p, 0.0, smooth=55)
+    # низ стакана закрываем «массой кофе» того же материала, но сажаем её ниже среза
+    cyl('Кофейная масса', 0.0360, 0.009, (0, 0.115, 0.3835), 'bean', p, seg=32, bevel_w=0.0)
 
 
 def add_blob(bm, r, loc, scale, rot):
     seg, rings = 8, 5
-    ca, sa = math.cos(rot), math.sin(rot)
+    if not isinstance(rot, (tuple, list)):
+        rot = (0.0, 0.0, rot)
+    rx0, ry0, rz0 = rot
+    cx, sx = math.cos(rx0), math.sin(rx0)
+    cy, sy = math.cos(ry0), math.sin(ry0)
+    cz, sz = math.cos(rz0), math.sin(rz0)
     verts = []
+
+    def place(px, py, pz):
+        # Rz * Ry * Rx
+        y1 = py * cx - pz * sx
+        z1 = py * sx + pz * cx
+        x2 = px * cy + z1 * sy
+        z2 = -px * sy + z1 * cy
+        x3 = x2 * cz - y1 * sz
+        y3 = x2 * sz + y1 * cz
+        return (x3 + loc[0], y3 + loc[1], z2 + loc[2])
+
     for i in range(1, rings):
         phi = math.pi * i / rings
         ring = []
@@ -625,12 +713,13 @@ def add_blob(bm, r, loc, scale, rot):
             x = r * math.sin(phi) * math.cos(th) * scale[0]
             y = r * math.sin(phi) * math.sin(th) * scale[1]
             z = r * math.cos(phi) * scale[2]
-            rx = x * ca - y * sa
-            ry = x * sa + y * ca
-            ring.append(bm.verts.new((rx + loc[0], ry + loc[1], z + loc[2])))
+            # борозда зерна: поджимаем поясок по середине — читается как разлом
+            if abs(phi - math.pi / 2) < 0.55:
+                y *= 0.64
+            ring.append(bm.verts.new(place(x, y, z)))
         verts.append(ring)
-    top = bm.verts.new((loc[0], loc[1], loc[2] + r * scale[2]))
-    bot = bm.verts.new((loc[0], loc[1], loc[2] - r * scale[2]))
+    top = bm.verts.new(place(0.0, 0.0, r * scale[2]))
+    bot = bm.verts.new(place(0.0, 0.0, -r * scale[2]))
     for i in range(len(verts) - 1):
         for j in range(seg):
             j2 = (j + 1) % seg
@@ -650,6 +739,8 @@ def build_brew(p):
     cyl('Сетка', 0.0245, 0.0025, (-0.030, -0.120, 0.1815), 'steel', p, seg=32, bevel_w=0.0)
     tube('Патрубок', [(-0.030, -0.120, 0.180), (-0.032, -0.152, 0.199), (-0.030, -0.188, 0.214)], 0.0040, 'brass', p, seg=8)
     box('Фиксатор', (0.022, 0.008, 0.010), (-0.062, -0.120, 0.215), 'alu_dark', p, 0.0006, 2)
+    box('Рычаг блока', (0.038, 0.006, 0.006), (-0.030, -0.146, 0.267), 'steel', p, 0.0006, 2)
+    cyl('Пружина', 0.0050, 0.014, (-0.052, -0.120, 0.240), 'steel', p, seg=14, bevel_w=0.0003)
     for z in (0.196, 0.236):
         screw('Винт блока', (-0.030, -0.1500, z), 'Y-', p, R=0.0022)
 
@@ -664,6 +755,10 @@ def build_boiler(p):
     cyl('Дренаж', 0.0055, 0.014, (0.066, 0.080, 0.150), 'brass', p, seg=16, axis='X', bevel_w=0.0004)
     cyl('Клапан', 0.0060, 0.014, (0.030, 0.118, 0.286), 'brass', p, seg=16, bevel_w=0.0004)
     box('Хомут', (0.012, 0.070, 0.010), (0.058, 0.080, 0.300), 'steel', p, 0.0006, 2)
+    cyl('Фланец ТЭНа', 0.0160, 0.006, (0.030, 0.115, 0.212), 'steel', p, seg=22, axis='Y', bevel_w=0.0006)
+    box('Клемма ТЭНа', (0.016, 0.008, 0.011), (0.030, 0.124, 0.212), 'plastic', p, 0.0008, 2)
+    cyl('Датчик тепла', 0.0040, 0.010, (0.030, 0.115, 0.168), 'brass', p, seg=14, axis='Y', bevel_w=0.0003)
+    cyl('Предохранитель', 0.0052, 0.016, (0.062, 0.080, 0.238), 'brass', p, seg=14, axis='X', bevel_w=0.0003)
 
 
 def build_pump(p):
@@ -689,28 +784,28 @@ def build_grinder(p):
 
 EXPLODE = {
     'Корпус': (0.0, 0.0, 0.0),
-    'Левая панель': (-0.070, 0.0, -0.250),
-    'Правая панель': (0.070, 0.0, -0.250),
-    'Лицевая панель': (0.0, -0.150, 0.0),
-    'Верхняя площадка': (0.0, 0.030, 0.120),
-    'Панель управления': (0.010, -0.190, 0.010),
-    'Варочная группа': (-0.020, -0.230, 0.020),
-    'Держатель фильтра': (-0.030, -0.270, -0.040),
-    'Паровой кран': (0.070, -0.200, 0.0),
-    'Каплесборник': (0.0, -0.200, -0.060),
-    'Бак для воды': (-0.170, 0.050, 0.020),
-    'Контейнер для зёрен': (0.0, 0.020, 0.150),
-    'Заварочный блок': (0.0, -0.090, 0.030),
-    'Бойлер': (-0.080, 0.070, 0.060),
-    'Помпа': (-0.110, -0.060, -0.035),
-    'Кофемолка': (0.060, 0.060, 0.130),
+    'Левая панель': (-0.046, 0.0, -0.184),
+    'Правая панель': (0.046, 0.0, -0.184),
+    'Лицевая панель': (0.0, -0.130, 0.0),
+    'Верхняя площадка': (0.0, 0.015, 0.138),
+    'Панель управления': (0.006, -0.161, 0.009),
+    'Варочная группа': (-0.015, -0.146, 0.015),
+    'Держатель фильтра': (-0.018, -0.192, -0.015),
+    'Паровой кран': (0.046, -0.115, 0.0),
+    'Каплесборник': (0.0, -0.146, -0.046),
+    'Бак для воды': (-0.138, 0.046, 0.015),
+    'Контейнер для зёрен': (0.0, 0.015, 0.138),
+    'Заварочный блок': (0.0, -0.077, 0.031),
+    'Бойлер': (-0.069, 0.061, 0.054),
+    'Помпа': (-0.107, -0.046, -0.031),
+    'Кофемолка': (0.054, 0.054, 0.115),
 }
 
 WAVES = [
-    ['Левая панель', 'Правая панель', 'Верхняя площадка'],
+    ['Левая панель', 'Правая панель', 'Верхняя площадка', 'Контейнер для зёрен'],
     ['Лицевая панель', 'Панель управления'],
     ['Варочная группа', 'Держатель фильтра', 'Паровой кран', 'Каплесборник'],
-    ['Бак для воды', 'Контейнер для зёрен'],
+    ['Бак для воды'],
     ['Заварочный блок', 'Бойлер', 'Помпа', 'Кофемолка'],
 ]
 
@@ -1008,6 +1103,18 @@ def build_all():
 
 
 def export_glb():
+    # процедурный шум шероховатости в glTF не переживает экспорт: он теряет
+    # конкретное значение roughness, и металл в вебе становится плоским.
+    # Рендеры к этому моменту уже сняты — расцепляем шум перед выгрузкой.
+    for m in bpy.data.materials:
+        if not m.use_nodes:
+            continue
+        b = m.node_tree.nodes.get('Principled BSDF')
+        if not b:
+            continue
+        for lk in list(m.node_tree.links):
+            if lk.to_node == b and lk.to_socket.name == 'Roughness':
+                m.node_tree.links.remove(lk)
     for ob in list(STUDIO):
         try:
             bpy.data.objects.remove(ob, do_unlink=True)

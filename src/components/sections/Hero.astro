@@ -5,12 +5,26 @@
  * Композиция: типографика на чернилах слева, машина в интерьере справа.
  * Фото выступает фоном сайта (бриф) и эталоном света для 3D-сцены (фаза 3),
  * поэтому кадр не перекрывается текстом — левый край уходит в чернила градиентом.
+ *
+ * Движение: строки заголовка выезжают из маски, кадр идёт с небольшим
+ * параллаксом, кнопка «Обсудить проект» слегка тянется за курсором.
+ * Всё — на CSS и одном коротком inline-скрипте; при reduced-motion и на
+ * тач-указателе остаётся статика.
  */
 import Nav from '../Nav.astro';
 import Cta from '../Cta.astro';
 import Arrow from '../Arrow.astro';
 import { HERO } from '../../data/hero';
 import { CONTACTS } from '../../data/site';
+
+/**
+ * Заголовок режется на три визуальные строки для маски.
+ * Копирайт не меняется: слова те же и в том же порядке, меняется только разбивка.
+ */
+const words = HERO.title.split(' ');
+const titleLines = words.length >= 3
+  ? [words[0], words[1], words.slice(2).join(' ')]
+  : [HERO.title];
 ---
 
 <header class="hero" id="top">
@@ -19,6 +33,7 @@ import { CONTACTS } from '../../data/site';
 
     <div class="hero__media">
       <img
+        class="hero__img"
         src={`${import.meta.env.BASE_URL.replace(/\/?$/, '/')}img/hero.webp`}
         width="1600"
         height="1040"
@@ -29,14 +44,29 @@ import { CONTACTS } from '../../data/site';
     </div>
 
     <div class="hero__body">
-      <p class="mono hero__kicker">{HERO.kicker}</p>
-      <h1 class="display hero__title">{HERO.title}</h1>
+      <p class="mono hero__kicker">
+        <span class="dot" aria-hidden="true"></span>{HERO.kicker}
+      </p>
+
+      <h1 class="display hero__title">
+        {
+          titleLines.map((line) => (
+            <span class="hero__line">
+              <span class="hero__line-in">{line}</span>
+            </span>
+          ))
+        }
+      </h1>
+
       <p class="hero__lead">{HERO.lead}</p>
 
       <div class="hero__actions">
-        <Cta href={CONTACTS.telegram} label={HERO.cta} variant="solid" external />
+        <span class="hero__cta">
+          <Cta href={CONTACTS.telegram} label={HERO.cta} variant="solid" external />
+        </span>
+
         <a class="hero__secondary" href={HERO.secondaryHref}>
-          <span>{HERO.secondary}</span>
+          <span class="hero__secondary-label link-underline">{HERO.secondary}</span>
           <Arrow size={16} />
         </a>
       </div>
@@ -78,6 +108,17 @@ import { CONTACTS } from '../../data/site';
     height: 100%;
     object-fit: cover;
     object-position: 14% 44%;
+  }
+
+  /*
+   * Параллакс: сдвиг ±18px от --hero-shift.
+   * Запас масштаба 1.05 гасит край, который открыл бы сдвиг.
+   */
+  @media (min-width: 900px) and (hover: hover) and (pointer: fine) {
+    .hero__img {
+      transform: translate3d(0, var(--hero-shift, 0px), 0) scale(1.05);
+      will-change: transform;
+    }
   }
 
   /* левый и верхний край растворяются в чернилах — стыка не видно */
@@ -136,6 +177,60 @@ import { CONTACTS } from '../../data/site';
     max-width: 7.4em;
   }
 
+  /* --- строки заголовка: маска + подъём --- */
+  .hero__line {
+    display: block;
+  }
+
+  .hero__line-in {
+    display: block;
+  }
+
+  /*
+   * Маска живёт на обёртке строки (2-й кадр), сам текст поднимается внутри.
+   * Конец inset отрицательный: готовое состояние ничего не срезает,
+   * поэтому верхушки букв и выносные не обрезаны.
+   */
+  @media (prefers-reduced-motion: no-preference) {
+    .hero__line {
+      animation: hero-line-mask 900ms var(--ease-out) both;
+    }
+
+    .hero__line-in {
+      animation: hero-line-rise 900ms var(--ease-out) both;
+    }
+
+    .hero__line:nth-child(2),
+    .hero__line:nth-child(2) .hero__line-in {
+      animation-delay: 90ms;
+    }
+
+    .hero__line:nth-child(3),
+    .hero__line:nth-child(3) .hero__line-in {
+      animation-delay: 180ms;
+    }
+  }
+
+  @keyframes hero-line-mask {
+    from {
+      clip-path: inset(0 0 100% 0);
+    }
+
+    to {
+      clip-path: inset(-0.32em 0 -0.32em 0);
+    }
+  }
+
+  @keyframes hero-line-rise {
+    from {
+      transform: translate3d(0, 1em, 0);
+    }
+
+    to {
+      transform: translate3d(0, 0, 0);
+    }
+  }
+
   .hero__lead {
     margin-top: 30px;
     max-width: 38ch;
@@ -152,10 +247,28 @@ import { CONTACTS } from '../../data/site';
     margin-top: 38px;
   }
 
+  /* обёртка кнопки: сюда приходит магнитный сдвиг --mx/--my */
+  .hero__cta {
+    display: inline-flex;
+  }
+
+  @media (hover: hover) and (pointer: fine) {
+    .hero__cta {
+      transform: translate3d(var(--mx, 0px), var(--my, 0px), 0);
+      transition: transform var(--dur-3) var(--ease-out);
+    }
+
+    /* пока курсор ведёт кнопку — короче, чтобы не отставать */
+    .hero__cta.is-near {
+      transition-duration: 90ms;
+    }
+  }
+
   .hero__secondary {
     display: inline-flex;
     align-items: center;
     gap: 10px;
+    min-height: 44px;
     font-family: var(--font-mono);
     font-size: var(--fs-mono);
     letter-spacing: 0.14em;
@@ -191,6 +304,7 @@ import { CONTACTS } from '../../data/site';
 
   .hero__meta li {
     position: relative;
+    white-space: nowrap;
   }
 
   .hero__meta li + li::before {
@@ -203,6 +317,21 @@ import { CONTACTS } from '../../data/site';
     background: currentColor;
     opacity: 0.5;
     transform: translateY(-50%) rotate(45deg);
+  }
+
+  /* короткий экран: заголовок в три строки не должен выдавливать кнопки */
+  @media (min-width: 900px) and (max-height: 760px) {
+    .hero__title {
+      font-size: clamp(2.5rem, 4.2vw, 3.6rem);
+    }
+
+    .hero__lead {
+      margin-top: 22px;
+    }
+
+    .hero__actions {
+      margin-top: 28px;
+    }
   }
 
   /* --- мобильная сборка: фото под шапкой, текст следом --- */
@@ -247,3 +376,87 @@ import { CONTACTS } from '../../data/site';
     }
   }
 </style>
+
+<script>
+  const hero = document.querySelector('.hero');
+  const image = document.querySelector('.hero__img');
+  const magnet = document.querySelector('.hero__cta');
+  const calm = window.matchMedia('(prefers-reduced-motion: reduce)');
+  const wide = window.matchMedia('(min-width: 900px)');
+  const fine = window.matchMedia('(hover: hover) and (pointer: fine)');
+
+  /*
+   * Параллакс кадра: ±18px по вертикали.
+   * Только широкий экран, точный указатель и разрешённое движение;
+   * на тач-устройстве и при reduced-motion --hero-shift не ставится вовсе.
+   */
+  if (hero && image && !calm.matches) {
+    let pending = 0;
+
+    const paint = () => {
+      pending = 0;
+
+      if (calm.matches || !wide.matches || !fine.matches) {
+        if (image.hasAttribute('style')) image.removeAttribute('style');
+        return;
+      }
+
+      const box = hero.getBoundingClientRect();
+      const progress = Math.min(1, Math.max(0, -box.top / Math.max(box.height, 1)));
+      image.setAttribute('style', `--hero-shift:${((progress - 0.5) * 36).toFixed(1)}px`);
+    };
+
+    const request = () => {
+      if (pending) return;
+      pending = window.requestAnimationFrame(paint);
+    };
+
+    window.addEventListener('scroll', request, { passive: true });
+    window.addEventListener('resize', request);
+    calm.addEventListener('change', request);
+    paint();
+  }
+
+  /*
+   * Магнитная кнопка: сдвиг до 4px по горизонтали и 3px по вертикали.
+   * Курсор ведёт кнопку — короткая задержка; отпустили — плавный возврат.
+   */
+  if (magnet && !calm.matches && fine.matches) {
+    let frame = 0;
+    let dx = 0;
+    let dy = 0;
+
+    const settle = () => {
+      frame = 0;
+      magnet.setAttribute('style', `--mx:${dx.toFixed(1)}px;--my:${dy.toFixed(1)}px`);
+    };
+
+    const requestMove = () => {
+      if (frame) return;
+      frame = window.requestAnimationFrame(settle);
+    };
+
+    const reset = () => {
+      dx = 0;
+      dy = 0;
+      magnet.classList.remove('is-near');
+      requestMove();
+    };
+
+    magnet.addEventListener('pointermove', (event) => {
+      if (!(event instanceof PointerEvent)) return;
+      const box = magnet.getBoundingClientRect();
+      const x = (event.clientX - (box.left + box.width / 2)) / (box.width / 2);
+      const y = (event.clientY - (box.top + box.height / 2)) / (box.height / 2);
+      dx = Math.max(-1, Math.min(1, x)) * 4;
+      dy = Math.max(-1, Math.min(1, y)) * 3;
+      magnet.classList.add('is-near');
+      requestMove();
+    });
+
+    magnet.addEventListener('pointerleave', reset);
+    magnet.addEventListener('pointercancel', reset);
+    magnet.addEventListener('focusout', reset);
+    calm.addEventListener('change', reset);
+  }
+</script>

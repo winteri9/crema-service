@@ -9,6 +9,7 @@
  */
 import '../styles/tokens.css';
 import '../styles/base.css';
+import '../styles/ux.css';
 import { SITE } from '../data/site';
 import tightCyr from '../assets/fonts/inter-tight-800-cyrillic.woff2?url';
 import tightLat from '../assets/fonts/inter-tight-800-latin.woff2?url';
@@ -71,5 +72,8 @@ const ogImage = new URL(`${base}img/model-still.png`, SITE.url).href;
     </div>
     <slot />
     <div class="grain" aria-hidden="true"></div>
+    <script>
+      import '../scripts/reveal';
+    </script>
   </body>
 </html>

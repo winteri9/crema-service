@@ -6,6 +6,15 @@
  */
 import Arrow from '../Arrow.astro';
 import { ANATOMY, PARTS } from '../../data/parts';
+
+const CHECKS = [
+  { id: 'power', name: 'Питание и плата' },
+  { id: 'heat', name: 'Нагрев бойлера' },
+  { id: 'pump', name: 'Помпа и давление' },
+  { id: 'group', name: 'Пролив группы' },
+  { id: 'steam', name: 'Паровой клапан' },
+  { id: 'scale', name: 'Накипь в контуре' },
+] as const;
 ---
 
 <section class="sec anatomy" id="anatomy" aria-labelledby="anatomy-title">
@@ -43,6 +52,35 @@ import { ANATOMY, PARTS } from '../../data/parts';
       </button>
       <p class="anatomy__hint-mono mono">Мышью — поворот · колесо — масштаб</p>
     </div>
+
+    <aside class="diag" data-diag aria-labelledby="diag-title">
+      <div class="diag__head">
+        <p class="mono diag__title" id="diag-title">Самодиагностика</p>
+        <span class="mono diag__seq">SEQ 01</span>
+      </div>
+
+      <ul class="diag__list">
+        {CHECKS.map((c) => (
+          <li class="diag__row" data-diag-row={c.id}>
+            <span class="diag__dot" aria-hidden="true"></span>
+            <span class="diag__name">{c.name}</span>
+            <span class="diag__val mono" data-diag-val>—</span>
+          </li>
+        ))}
+      </ul>
+
+      <button class="diag__run mono" type="button" data-diag-run disabled>
+        Запустить диагностику
+      </button>
+
+      <p class="diag__note">
+        Тест безопасен: вода идёт в поддон, пар — вхолостую. Так же проходит приёмка и после ремонта.
+      </p>
+
+      <a class="diag__cta" href="#contact" data-diag-cta hidden>
+        Так же починим и вашу <Arrow size={14} />
+      </a>
+    </aside>
   </div>
 
   <div class="shell">
@@ -60,8 +98,125 @@ import { ANATOMY, PARTS } from '../../data/parts';
 <script>
   import { initViewer } from '../../scenes/viewer';
 
-  const root = document.querySelector('[data-viewer-root]');
-  if (root instanceof HTMLElement) initViewer(root);
+  type Api = { explode: (on: boolean) => void; isExploded: () => boolean; pulse: (n: string) => void };
+
+  const root = document.querySelector<HTMLElement>('[data-viewer-root]');
+  if (root) initViewer(root);
+
+  const panel = root?.querySelector<HTMLElement>('[data-diag]');
+  const runBtn = panel?.querySelector<HTMLButtonElement>('[data-diag-run]');
+  const cta = panel?.querySelector<HTMLElement>('[data-diag-cta]');
+  const toggle = root?.querySelector<HTMLButtonElement>('[data-viewer-toggle]');
+  const api = root ? (root as HTMLElement & { __viewer?: Api }).__viewer : undefined;
+
+  const OK: Record<string, string> = {
+    power: 'ok',
+    heat: '93 °C',
+    pump: '9.2 бар',
+    group: '30 мл',
+    steam: 'ok',
+    scale: '4 %',
+  };
+
+  // Неисправность берётся заново на каждый прогон — демо не повторяется
+  const FAULTS = [
+    { row: 'scale', bad: '62 %', node: 'Бойлер', fix: 'Накипь снята, контур промыт.' },
+    { row: 'pump', bad: '7.1 бар', node: 'Помпа', fix: 'Клапан помпы заменён.' },
+    { row: 'group', bad: '0.4 бар', node: 'Варочная группа', fix: 'Прокладка и сетка заменены.' },
+    { row: 'steam', bad: '28 %', node: 'Паровой кран', fix: 'Нарост снят, клапан отрегулирован.' },
+  ];
+
+  if (panel && runBtn && api && toggle) {
+    const rows = Array.from(panel.querySelectorAll<HTMLElement>('[data-diag-row]'));
+    const vals = new Map<string, HTMLElement>();
+    rows.forEach((r) => {
+      const v = r.querySelector<HTMLElement>('[data-diag-val]');
+      if (v) vals.set(r.dataset.diagRow ?? '', v);
+    });
+
+    let busy = false;
+    let fault: (typeof FAULTS)[number] | null = null;
+    let phase: 'idle' | 'fault' | 'done' = 'idle';
+
+    const wait = (ms: number) => new Promise<void>((r) => setTimeout(r, ms));
+
+    const reset = () => {
+      rows.forEach((r) => {
+        delete r.dataset.state;
+        const v = r.querySelector<HTMLElement>('[data-diag-val]');
+        if (v) v.textContent = '—';
+      });
+      cta?.setAttribute('hidden', '');
+    };
+
+    const run = async () => {
+      if (busy) return;
+      busy = true;
+      runBtn.disabled = true;
+
+      if (phase === 'fault' && fault) {
+        runBtn.textContent = 'Устраняю…';
+        api.pulse(fault.node);
+        await wait(1500);
+        const row = rows.find((r) => r.dataset.diagRow === fault?.row);
+        if (row) row.dataset.state = 'done';
+        const v = vals.get(fault.row);
+        if (v) v.textContent = 'устранено';
+        api.explode(false);
+        phase = 'done';
+        runBtn.textContent = 'Проверить ещё раз';
+        runBtn.disabled = false;
+        cta?.removeAttribute('hidden');
+        busy = false;
+        return;
+      }
+
+      reset();
+      phase = 'idle';
+      fault = FAULTS[Math.floor(Math.random() * FAULTS.length)] ?? null;
+      runBtn.textContent = 'Идёт проверка…';
+      api.explode(true);
+      await wait(900);
+
+      for (const row of rows) {
+        const id = row.dataset.diagRow ?? '';
+        row.dataset.state = 'active';
+        const v = vals.get(id);
+        if (v) v.textContent = '…';
+        await wait(620);
+        if (fault && id === fault.row) {
+          row.dataset.state = 'warn';
+          if (v) v.textContent = fault.bad;
+        } else {
+          row.dataset.state = 'done';
+          if (v) v.textContent = OK[id] ?? 'ok';
+        }
+      }
+
+      if (fault) {
+        phase = 'fault';
+        runBtn.textContent = 'Починить';
+      } else {
+        phase = 'done';
+        api.explode(false);
+        runBtn.textContent = 'Проверить ещё раз';
+        cta?.removeAttribute('hidden');
+      }
+      runBtn.disabled = false;
+      busy = false;
+    };
+
+    runBtn.addEventListener('click', () => {
+      void run();
+    });
+
+    // кнопка оживает вместе со сценой — когда модель загрузилась
+    const sync = () => {
+      if (!toggle.disabled) runBtn.disabled = false;
+    };
+    new MutationObserver(sync).observe(toggle, { attributes: true, attributeFilter: ['disabled'] });
+    sync();
+  }
 </script>
 
 <style>
@@ -264,6 +419,185 @@ import { ANATOMY, PARTS } from '../../data/parts';
 
     .anatomy__toggle {
       width: 100%;
+    }
+  }
+  .diag {
+    display: flex;
+    flex-direction: column;
+    gap: 14px;
+    padding: 20px max(var(--pad), calc((100% - var(--shell-max)) / 2 + var(--pad)));
+    border: 1px solid var(--rule);
+    background:
+      linear-gradient(180deg, rgba(216, 162, 74, 0.05), transparent 62%),
+      rgba(18, 16, 13, 0.55);
+  }
+
+  .diag__head {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: 12px;
+    padding-bottom: 12px;
+    border-bottom: 1px solid var(--rule);
+  }
+
+  .diag__title {
+    color: var(--fg);
+    letter-spacing: 0.12em;
+  }
+
+  .diag__seq {
+    color: var(--fg-muted);
+    opacity: 0.7;
+  }
+
+  .diag__list {
+    display: flex;
+    flex-direction: column;
+  }
+
+  .diag__row {
+    display: grid;
+    grid-template-columns: 12px minmax(0, 1fr) auto;
+    align-items: center;
+    gap: 10px;
+    padding: 9px 0;
+    font-size: 0.875rem;
+    line-height: 1.35;
+    color: var(--fg-muted);
+    transition: color var(--dur-2) var(--ease-out);
+  }
+
+  .diag__row + .diag__row {
+    border-top: 1px solid var(--rule);
+  }
+
+  .diag__dot {
+    width: 5px;
+    height: 5px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: 0.45;
+    transition: opacity var(--dur-2) var(--ease-out), background var(--dur-2) var(--ease-out);
+  }
+
+  .diag__val {
+    color: var(--fg);
+    white-space: nowrap;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .diag__row[data-state='active'] {
+    color: var(--fg);
+  }
+
+  .diag__row[data-state='active'] .diag__dot {
+    background: var(--accent);
+    opacity: 1;
+    box-shadow: 0 0 0 3px rgba(216, 162, 74, 0.16);
+    animation: diag-pulse 1.1s var(--ease-in-out) infinite;
+  }
+
+  .diag__row[data-state='warn'] {
+    color: var(--accent);
+  }
+
+  .diag__row[data-state='warn'] .diag__dot {
+    background: var(--accent);
+    opacity: 1;
+  }
+
+  .diag__row[data-state='done'] .diag__dot {
+    background: var(--fg);
+    opacity: 0.8;
+  }
+
+  @keyframes diag-pulse {
+    0%,
+    100% {
+      box-shadow: 0 0 0 3px rgba(216, 162, 74, 0.16);
+    }
+
+    50% {
+      box-shadow: 0 0 0 6px rgba(216, 162, 74, 0.04);
+    }
+  }
+
+  .diag__run {
+    margin-top: auto;
+    width: 100%;
+    min-height: 44px;
+    padding: 12px 16px;
+    border: 0;
+    background: var(--accent);
+    color: var(--ink);
+    letter-spacing: 0.1em;
+    cursor: pointer;
+    transition: background var(--dur-2) var(--ease-out), transform var(--dur-1) var(--ease-out);
+  }
+
+  .diag__run:hover:not(:disabled) {
+    background: var(--paper);
+  }
+
+  .diag__run:active:not(:disabled) {
+    transform: translateY(1px);
+  }
+
+  .diag__run:disabled {
+    opacity: 0.45;
+    cursor: default;
+  }
+
+  .diag__note {
+    font-size: 0.75rem;
+    line-height: 1.5;
+    color: var(--fg-muted);
+    opacity: 0.8;
+  }
+
+  .diag__cta {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 0.8125rem;
+    color: var(--accent);
+    text-decoration: none;
+  }
+
+  .diag__cta[hidden] {
+    display: none;
+  }
+
+  .diag__cta:hover {
+    color: var(--paper);
+  }
+
+  /* --- самодиагностика: полоса под сценой, сцену не сужаем --- */
+  @media (min-width: 900px) {
+    .diag {
+      display: grid;
+      grid-template-columns: 220px minmax(0, 1fr) 260px;
+      align-items: start;
+      column-gap: 32px;
+    }
+
+    .diag__head {
+      flex-direction: column;
+      align-items: flex-start;
+      gap: 6px;
+      padding-bottom: 0;
+      border-bottom: 0;
+    }
+
+    .diag__list {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      column-gap: 24px;
+    }
+
+    .diag__note {
+      display: none;
     }
   }
 </style>

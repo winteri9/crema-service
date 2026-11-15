@@ -1,10 +1,12 @@
 ---
 /**
  * Секция 06 — парк оборудования. Источник: src/data/fleet.ts (draft).
- * Бегущая строка на всю ширину: список дублируется, второй экземпляр aria-hidden.
- * Анимация на CSS, чтобы строка ехала и без JS; при reduce — стоит.
+ * Горизонтальная галерея со scroll-snap: свайп на телефоне, кнопки и клавиши — на десктопе.
+ * Края ленты растворяются маской, под лентой — полоса прогресса и счётчик «01 / 12».
  */
 import { FLEET } from '../../data/fleet';
+
+const total = String(FLEET.items.length).padStart(2, '0');
 ---
 
 <section class="sec surface-ink fleet" id="fleet" aria-labelledby="fleet-title">
@@ -17,92 +19,348 @@ import { FLEET } from '../../data/fleet';
     </div>
   </div>
 
-  <div class="fleet__marquee">
-    <div class="fleet__track">
-      <ul class="fleet__list">
-        {FLEET.items.map((item) => <li class="fleet__item">{item}</li>)}
-      </ul>
-      <ul class="fleet__list" aria-hidden="true">
-        {FLEET.items.map((item) => <li class="fleet__item">{item}</li>)}
-      </ul>
+  <figure class="fleet__frame">
+    <div
+      class="fleet__viewport"
+      data-fleet
+      tabindex="0"
+      role="region"
+      aria-label={`${FLEET.title}: горизонтальная галерея`}
+    >
+      <div class="fleet__track" role="list">
+        {
+          FLEET.items.map((item, index) => (
+            <div class="fleet__card" role="listitem">
+              <span class="fleet__card-num">{String(index + 1).padStart(2, '0')}</span>
+              <span class="fleet__card-name">{item}</span>
+            </div>
+          ))
+        }
+      </div>
+    </div>
+  </figure>
+
+  <div class="shell">
+    <div class="fleet__foot">
+      <div class="fleet__progress" aria-hidden="true">
+        <span class="fleet__progress-fill" data-fleet-fill></span>
+      </div>
+
+      <p class="fleet__count mono" aria-hidden="true">
+        <span class="fleet__count-current" data-fleet-count>01</span>
+        <span class="fleet__count-sep">/</span>
+        <span>{total}</span>
+      </p>
+
+      <div class="fleet__controls">
+        <button class="fleet__btn" type="button" data-fleet-prev aria-label="Предыдущая карточка">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path
+              d="M8.6 2.4 3.8 7l4.8 4.6"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="square"></path>
+          </svg>
+        </button>
+        <button class="fleet__btn" type="button" data-fleet-next aria-label="Следующая карточка">
+          <svg width="14" height="14" viewBox="0 0 14 14" fill="none" aria-hidden="true">
+            <path
+              d="M5.4 2.4 10.2 7l-4.8 4.6"
+              stroke="currentColor"
+              stroke-width="1.4"
+              stroke-linecap="square"></path>
+          </svg>
+        </button>
+      </div>
     </div>
   </div>
 </section>
 
 <style>
-  .fleet {
-    padding-bottom: 0;
-  }
-
   .fleet__head {
     display: flex;
     flex-wrap: wrap;
     align-items: baseline;
     justify-content: space-between;
     gap: 16px;
-    margin-bottom: 48px;
+    margin-bottom: clamp(30px, 3.6vw, 48px);
   }
 
   .fleet__note {
     color: var(--fg-muted);
   }
 
-  .fleet__marquee {
-    overflow: hidden;
-    border-block: 1px solid var(--rule);
-    padding-block: 26px;
+  /* --- лента: полная ширина, карточки выровнены по оболочке --- */
+  .fleet__frame {
+    --fleet-gutter: max(var(--pad), calc((100% - var(--shell-max)) / 2 + var(--pad)));
+    --fleet-gap: clamp(12px, 1.2vw, 18px);
+    margin: 0;
     -webkit-mask-image: linear-gradient(
       90deg,
       transparent 0,
-      #000 6%,
-      #000 94%,
+      var(--ink) var(--fleet-gutter),
+      var(--ink) calc(100% - var(--fleet-gutter)),
       transparent 100%
     );
-    mask-image: linear-gradient(90deg, transparent 0, #000 6%, #000 94%, transparent 100%);
+    mask-image: linear-gradient(
+      90deg,
+      transparent 0,
+      var(--ink) var(--fleet-gutter),
+      var(--ink) calc(100% - var(--fleet-gutter)),
+      transparent 100%
+    );
+  }
+
+  .fleet__viewport {
+    position: relative;
+    overflow-x: auto;
+    overflow-y: hidden;
+    overscroll-behavior-x: contain;
+    scroll-snap-type: x mandatory;
+    scroll-padding-inline: var(--fleet-gutter);
+    padding-left: var(--fleet-gutter);
+    /* запас справа: последняя карточка доезжает до левого края, счётчик доходит до 12 */
+    padding-right: calc(100% - var(--fleet-gutter) - min(360px, 78vw));
+    scrollbar-width: none;
+    -webkit-overflow-scrolling: touch;
+  }
+
+  .fleet__viewport::-webkit-scrollbar {
+    display: none;
+  }
+
+  .fleet__viewport:focus-visible {
+    outline: 2px solid var(--focus);
+    outline-offset: -4px;
   }
 
   .fleet__track {
     display: flex;
+    gap: var(--fleet-gap);
     width: max-content;
-    animation: fleet-run 48s linear infinite;
   }
 
-  .fleet__list {
+  .fleet__card {
     display: flex;
-    align-items: center;
+    flex: 0 0 auto;
+    flex-direction: column;
+    justify-content: space-between;
+    gap: 32px;
+    width: min(360px, 78vw);
+    min-height: clamp(136px, 11.5vw, 160px);
+    padding: clamp(18px, 2vw, 26px);
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    background-color: color-mix(in srgb, var(--paper) 4%, var(--ink));
+    scroll-snap-align: start;
+    transition:
+      background-color var(--dur-2) var(--ease-out),
+      border-color var(--dur-2) var(--ease-out);
   }
 
-  .fleet__item {
-    display: flex;
-    align-items: center;
+  .fleet__card:hover {
+    border-color: color-mix(in srgb, var(--accent) 40%, var(--rule));
+    background-color: color-mix(in srgb, var(--paper) 6%, var(--ink));
+  }
+
+  .fleet__card-num {
     font-family: var(--font-mono);
-    font-size: var(--fs-mono-l);
+    font-size: var(--fs-mono);
     font-weight: 500;
-    letter-spacing: 0.18em;
-    text-transform: uppercase;
-    color: color-mix(in srgb, var(--paper) 72%, transparent);
+    letter-spacing: 0.16em;
+    color: var(--accent);
+    font-variant-numeric: tabular-nums;
+  }
+
+  .fleet__card-name {
+    max-width: 15ch;
+    font-family: var(--font-display);
+    font-size: clamp(1.25rem, 1.7vw, 1.5rem);
+    font-weight: 800;
+    line-height: 1.02;
+    letter-spacing: -0.03em;
+    text-wrap: balance;
+  }
+
+  /* --- прогресс, счётчик, перелистывание --- */
+  .fleet__foot {
+    display: flex;
+    align-items: center;
+    gap: clamp(16px, 2.4vw, 28px);
+    margin-top: clamp(20px, 2.6vw, 30px);
+  }
+
+  .fleet__progress {
+    position: relative;
+    flex: 1 1 auto;
+    height: 1px;
+    background: color-mix(in srgb, var(--paper) 16%, transparent);
+    overflow: hidden;
+  }
+
+  .fleet__progress-fill {
+    position: absolute;
+    inset: 0;
+    background: var(--accent);
+    transform: scaleX(calc(0.02 + var(--p, 0) * 0.98));
+    transform-origin: left center;
+    transition: transform var(--dur-1) var(--ease-out);
+  }
+
+  .fleet__count {
+    display: inline-flex;
+    flex: none;
+    align-items: baseline;
+    gap: 4px;
+    color: var(--fg-muted);
     white-space: nowrap;
   }
 
-  .fleet__item::after {
-    content: '';
-    width: 4px;
-    height: 4px;
-    margin-inline: 26px;
-    background: var(--accent);
-    opacity: 0.55;
-    transform: rotate(45deg);
+  .fleet__count-current {
+    color: var(--accent);
   }
 
-  @keyframes fleet-run {
-    to {
-      transform: translateX(-50%);
+  .fleet__count-sep {
+    color: var(--fg-muted);
+  }
+
+  .fleet__controls {
+    display: flex;
+    flex: none;
+    gap: 8px;
+  }
+
+  .fleet__btn {
+    display: inline-grid;
+    place-items: center;
+    width: 44px;
+    height: 44px;
+    padding: 0;
+    border: 1px solid var(--rule);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--fg-muted);
+    cursor: pointer;
+    transition:
+      color var(--dur-1) var(--ease-out),
+      border-color var(--dur-1) var(--ease-out),
+      background-color var(--dur-1) var(--ease-out);
+  }
+
+  .fleet__btn:hover {
+    color: var(--fg);
+    border-color: color-mix(in srgb, var(--accent) 55%, var(--rule));
+    background-color: color-mix(in srgb, var(--accent) 8%, transparent);
+  }
+
+  .fleet__btn svg {
+    display: block;
+  }
+
+  .fleet__btn:disabled {
+    opacity: 0.38;
+    cursor: default;
+  }
+
+  .fleet__btn:disabled:hover {
+    color: var(--fg-muted);
+    border-color: var(--rule);
+    background-color: transparent;
+  }
+
+  @media (min-width: 900px) {
+    .fleet__foot {
+      padding-left: var(--rail);
     }
   }
 
-  @media (prefers-reduced-motion: reduce) {
-    .fleet__track {
-      animation: none;
+  @media (max-width: 380px) {
+    .fleet__progress {
+      display: none;
     }
   }
 </style>
+
+<script>
+  const pad = (value: number): string => String(value).padStart(2, '0');
+  const still = (): boolean => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+
+  document.querySelectorAll<HTMLElement>('[data-fleet]').forEach((viewport) => {
+    const section = viewport.closest<HTMLElement>('.fleet');
+    const cards = Array.from(viewport.querySelectorAll<HTMLElement>('[data-fleet-card], .fleet__card'));
+    const fill = section?.querySelector<HTMLElement>('[data-fleet-fill]');
+    const counter = section?.querySelector<HTMLElement>('[data-fleet-count]');
+    const prevBtn = section?.querySelector<HTMLButtonElement>('[data-fleet-prev]');
+    const nextBtn = section?.querySelector<HTMLButtonElement>('[data-fleet-next]');
+    const first = cards[0];
+    if (!first) return;
+
+    let queued = 0;
+
+    const step = (): number => {
+      const second = cards[1];
+      return second ? second.offsetLeft - first.offsetLeft : viewport.clientWidth;
+    };
+
+    const update = (): void => {
+      queued = 0;
+      const max = viewport.scrollWidth - viewport.clientWidth;
+      const progress = max > 0 ? Math.min(1, Math.max(0, viewport.scrollLeft / max)) : 0;
+      fill?.style.setProperty('--p', progress.toFixed(3));
+
+      const unit = step() || 1;
+      const index = Math.min(cards.length - 1, Math.max(0, Math.floor(viewport.scrollLeft / unit + 0.5)));
+      if (counter) counter.textContent = pad(index + 1);
+      if (prevBtn) prevBtn.disabled = index <= 0;
+      if (nextBtn) nextBtn.disabled = index >= cards.length - 1;
+    };
+
+    const schedule = (): void => {
+      if (queued) return;
+      queued = window.requestAnimationFrame(update);
+    };
+
+    const target = (index: number): void => {
+      const unit = step() || viewport.clientWidth;
+      const last = Math.max(0, viewport.scrollWidth - viewport.clientWidth);
+      viewport.scrollTo({
+        left: Math.min(Math.max(0, index * unit), last),
+        behavior: still() ? 'auto' : 'smooth',
+      });
+    };
+
+    viewport.addEventListener('scroll', schedule, { passive: true });
+    window.addEventListener('resize', schedule);
+
+    viewport.addEventListener('keydown', (event: KeyboardEvent) => {
+      const unit = step() || 1;
+      const index = Math.round(viewport.scrollLeft / unit);
+
+      if (event.key === 'ArrowRight') {
+        event.preventDefault();
+        target(index + 1);
+      } else if (event.key === 'ArrowLeft') {
+        event.preventDefault();
+        target(index - 1);
+      } else if (event.key === 'Home') {
+        event.preventDefault();
+        target(0);
+      } else if (event.key === 'End') {
+        event.preventDefault();
+        target(cards.length - 1);
+      }
+    });
+
+    prevBtn?.addEventListener('click', () => {
+      const unit = step() || 1;
+      target(Math.round(viewport.scrollLeft / unit) - 1);
+    });
+
+    nextBtn?.addEventListener('click', () => {
+      const unit = step() || 1;
+      target(Math.round(viewport.scrollLeft / unit) + 1);
+    });
+
+    schedule();
+  });
+</script>

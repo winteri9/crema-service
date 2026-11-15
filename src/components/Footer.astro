@@ -2,18 +2,25 @@
 /**
  * Секция 07 — футер. Источник: src/data/footer.ts, структура со скрина 2.
  * Светлая карточка с отступом от краёв — контрастный финал после тёмной страницы.
+ * Три колонки с волосяными разделителями; контакты — крупно, с копированием в буфер.
  * Юридические ссылки — не <a>: страниц нет, переход в никуда хуже заглушки.
  */
 import Cta from './Cta.astro';
 import Arrow from './Arrow.astro';
 import { FOOTER } from '../data/footer';
 import { SITE, CONTACTS } from '../data/site';
+
+const phone = String(CONTACTS.phone);
+const email = String(CONTACTS.email);
+const phoneHref = phone === '—' ? null : `tel:${phone.replace(/[^+\d]/g, '')}`;
+const emailHref = email === '—' ? null : `mailto:${email}`;
+const isBlank = (v: string) => !v || v === '—' || v === '-';
 ---
 
 <footer class="footer" id="contact">
   <div class="footer__card surface-paper">
     <div class="footer__grid">
-      <div class="footer__main">
+      <div class="footer__col footer__main">
         <div class="footer__meta">
           <span class="mono">{FOOTER.n} · {FOOTER.kicker}</span>
           <span class="footer__brand">
@@ -35,25 +42,87 @@ import { SITE, CONTACTS } from '../data/site';
         />
       </div>
 
-      <aside class="footer__aside">
+      <div class="footer__col footer__scope-col">
         <span class="footer__monogram" aria-hidden="true">{SITE.monogram}</span>
 
         <ul class="footer__scope">
           {FOOTER.scope.map((item) => <li>{item}</li>)}
         </ul>
+      </div>
 
-        <div class="footer__aside-foot">
-          <a
-            class="footer__handle mono"
-            href={CONTACTS.telegram}
-            target="_blank"
-            rel="noopener noreferrer"
-          >
-            <span>{CONTACTS.handle}</span>
-            <Arrow size={14} />
-          </a>
+      <div class="footer__col footer__contact">
+        <p class="footer__status">
+          <span class="dot" aria-hidden="true"></span>на связи
+        </p>
+
+        <div class="footer__channels">
+          <div class="footer__channel">
+            <div class="footer__channel-head">
+              <span class="footer__channel-label mono">Телефон</span>
+              {
+                !isBlank(phone) && (
+                  <button
+                    class="footer__copy mono"
+                    type="button"
+                    data-copy={phone}
+                    aria-label="Скопировать телефон"
+                  >
+                    Скопировать
+                  </button>
+                )
+              }
+              <span class="footer__copy-status visually-hidden" role="status" data-copy-status></span>
+            </div>
+            {
+              phoneHref ? (
+                <a class="footer__channel-value footer__channel-value--num" href={phoneHref}>
+                  {phone}
+                </a>
+              ) : (
+                <span class="footer__channel-value footer__channel-value--num">{phone}</span>
+              )
+            }
+          </div>
+
+          <div class="footer__channel">
+            <div class="footer__channel-head">
+              <span class="footer__channel-label mono">Почта</span>
+              {
+                !isBlank(email) && (
+                  <button
+                    class="footer__copy mono"
+                    type="button"
+                    data-copy={email}
+                    aria-label="Скопировать почту"
+                  >
+                    Скопировать
+                  </button>
+                )
+              }
+              <span class="footer__copy-status visually-hidden" role="status" data-copy-status></span>
+            </div>
+            {
+              emailHref ? (
+                <a class="footer__channel-value" href={emailHref}>
+                  {email}
+                </a>
+              ) : (
+                <span class="footer__channel-value">{email}</span>
+              )
+            }
+          </div>
         </div>
-      </aside>
+
+        <a
+          class="footer__handle mono"
+          href={CONTACTS.telegram}
+          target="_blank"
+          rel="noopener noreferrer"
+        >
+          <span>{CONTACTS.handle}</span>
+          <Arrow size={14} />
+        </a>
+      </div>
     </div>
 
     <div class="footer__bottom">
@@ -77,14 +146,31 @@ import { SITE, CONTACTS } from '../data/site';
     max-width: calc(var(--container) + 2 * var(--pad));
     margin-inline: auto;
     padding: clamp(28px, 4vw, 56px) clamp(24px, 4vw, 56px) 22px;
-    border: 1px solid var(--hairline-p);
+    border: 1px solid var(--rule);
     border-top: 2px solid var(--accent);
   }
 
   .footer__grid {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 40px;
+  }
+
+  /* --- три колонки, разделители — волосяные --- */
+  .footer__col {
+    min-width: 0;
+    padding-block: clamp(26px, 3.6vw, 36px);
+  }
+
+  .footer__main {
+    padding-top: 0;
+  }
+
+  .footer__col + .footer__col {
+    border-top: 1px solid var(--rule);
+  }
+
+  .footer__col:last-child {
+    padding-bottom: 0;
   }
 
   .footer__meta {
@@ -130,7 +216,6 @@ import { SITE, CONTACTS } from '../data/site';
     font-family: var(--font-display);
     font-weight: 800;
     font-size: clamp(1.75rem, 7vw, 3.15rem);
-    text-wrap: balance;
     line-height: 0.95;
     letter-spacing: -0.042em;
     margin-left: -0.03em;
@@ -149,13 +234,23 @@ import { SITE, CONTACTS } from '../data/site';
     margin-top: 34px;
   }
 
-  /* --- правая колонка: вензель, направления, контакт --- */
-  .footer__aside {
+  /* на узких экранах кнопка шире карточки: пусть занимает всю ширину и переносит подпись */
+  @media (max-width: 430px) {
+    .footer__main :global(.cta) {
+      width: 100%;
+      justify-content: space-between;
+      gap: 12px;
+      padding-inline: 18px;
+      white-space: normal;
+      text-align: left;
+    }
+  }
+
+  /* --- средняя колонка: вензель и направления --- */
+  .footer__scope-col {
     display: flex;
     flex-direction: column;
-    gap: 18px;
-    border-top: 1px solid var(--rule);
-    padding-top: 22px;
+    gap: clamp(20px, 2.6vw, 28px);
   }
 
   .footer__monogram {
@@ -175,16 +270,108 @@ import { SITE, CONTACTS } from '../data/site';
     color: var(--fg);
   }
 
-  .footer__aside-foot {
-    margin-top: auto;
+  /* --- колонка контактов --- */
+  .footer__contact {
+    display: flex;
+    flex-direction: column;
+    gap: clamp(20px, 2.6vw, 28px);
+  }
+
+  .footer__status {
+    display: flex;
+    align-items: center;
+    font-family: var(--font-mono);
+    font-size: var(--fs-mono);
+    font-weight: 500;
+    letter-spacing: 0.12em;
+    color: var(--fg-muted);
+  }
+
+  .footer__channels {
+    display: grid;
+    gap: 18px;
+  }
+
+  .footer__channel {
+    display: grid;
+    gap: 10px;
+  }
+
+  .footer__channel + .footer__channel {
     padding-top: 18px;
     border-top: 1px solid var(--rule);
   }
 
+  .footer__channel-label {
+    color: var(--fg-muted);
+  }
+
+  .footer__channel-head {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+  }
+
+  .footer__channel-value {
+    min-width: 0;
+    font-size: clamp(1.25rem, 2vw, 1.6rem);
+    font-weight: 500;
+    line-height: 1.15;
+    letter-spacing: -0.01em;
+    color: var(--fg);
+    text-decoration: none;
+    overflow-wrap: anywhere;
+    transition: color var(--dur-1) var(--ease-out);
+  }
+
+  .footer__channel-value:hover {
+    color: var(--accent-text);
+  }
+
+  .footer__channel-value--num {
+    font-family: var(--font-mono);
+    letter-spacing: 0.01em;
+    font-variant-numeric: tabular-nums;
+  }
+
+  .footer__copy {
+    flex: none;
+    min-height: 28px;
+    padding: 0 9px;
+    border: 1px solid var(--line);
+    border-radius: var(--radius);
+    background: transparent;
+    color: var(--fg-muted);
+    font-size: 0.625rem;
+    letter-spacing: 0.06em;
+    cursor: pointer;
+    transition:
+      color var(--dur-1) var(--ease-out),
+      border-color var(--dur-1) var(--ease-out),
+      background-color var(--dur-1) var(--ease-out);
+  }
+
+  .footer__copy:hover {
+    color: var(--fg);
+    border-color: var(--fg);
+    background-color: color-mix(in srgb, var(--ink) 4%, transparent);
+  }
+
+  .footer__copy.is-done {
+    color: var(--accent-text);
+    border-color: var(--accent-text);
+    background-color: color-mix(in srgb, var(--accent) 10%, transparent);
+  }
+
   .footer__handle {
-    display: inline-flex;
+    display: flex;
     align-items: center;
     gap: 10px;
+    width: 100%;
+    margin-top: auto;
+    padding-top: 18px;
+    border-top: 1px solid var(--rule);
     color: var(--fg);
     text-decoration: none;
     letter-spacing: 0.14em;
@@ -233,31 +420,32 @@ import { SITE, CONTACTS } from '../data/site';
 
   @media (min-width: 900px) {
     .footer__grid {
-      grid-template-columns: minmax(0, 1.55fr) minmax(0, 1fr);
-      column-gap: 64px;
-      row-gap: 0;
+      grid-template-columns: minmax(0, 1.55fr) minmax(0, 0.75fr) minmax(0, 1.2fr);
+    }
+
+    .footer__col {
+      padding: 0 clamp(24px, 3vw, 44px);
+    }
+
+    .footer__main {
+      padding-left: 0;
+    }
+
+    .footer__col + .footer__col {
+      border-top: 0;
+      border-left: 1px solid var(--rule);
+    }
+
+    .footer__col:last-child {
+      padding-right: 0;
     }
 
     .footer__meta {
       margin-bottom: 56px;
     }
 
-    .footer__aside {
-      border-top: 0;
-      padding-top: 0;
+    .footer__scope-col {
       justify-content: space-between;
-      min-height: 100%;
-    }
-
-    .footer__monogram {
-      font-size: clamp(3.25rem, 14vw, 4.5rem);
-      align-self: flex-end;
-    }
-
-    .footer__scope {
-      align-self: flex-end;
-      text-align: left;
-      max-width: 22ch;
     }
 
     .footer__bottom {
@@ -265,3 +453,62 @@ import { SITE, CONTACTS } from '../data/site';
     }
   }
 </style>
+
+<script>
+  const COPIED = 'Скопировано';
+  const RESET_MS = 1600;
+
+  const copyText = async (value: string): Promise<boolean> => {
+    try {
+      if (navigator.clipboard && window.isSecureContext) {
+        await navigator.clipboard.writeText(value);
+        return true;
+      }
+    } catch {
+      /* ниже — запасной путь через execCommand */
+    }
+
+    const area = document.createElement('textarea');
+    area.value = value;
+    area.setAttribute('readonly', '');
+    area.style.position = 'fixed';
+    area.style.top = '0';
+    area.style.left = '0';
+    area.style.opacity = '0';
+    document.body.appendChild(area);
+    area.select();
+
+    let copied = false;
+    try {
+      const legacy = document as unknown as { execCommand: (commandId: string) => boolean };
+      copied = legacy.execCommand('copy');
+    } catch {
+      copied = false;
+    }
+    area.remove();
+    return copied;
+  };
+
+  document.querySelectorAll<HTMLButtonElement>('[data-copy]').forEach((button) => {
+    const value = button.dataset.copy ?? '';
+    const status = button.parentElement?.querySelector<HTMLElement>('[data-copy-status]') ?? null;
+    const initial = button.textContent?.trim() || 'Скопировать';
+    let timer = 0;
+
+    button.addEventListener('click', async () => {
+      const copied = await copyText(value);
+      if (!copied) return;
+
+      window.clearTimeout(timer);
+      button.textContent = COPIED;
+      button.classList.add('is-done');
+      if (status) status.textContent = COPIED;
+
+      timer = window.setTimeout(() => {
+        button.textContent = initial;
+        button.classList.remove('is-done');
+        if (status) status.textContent = '';
+      }, RESET_MS);
+    });
+  });
+</script>

@@ -1,52 +1,94 @@
 ---
 /**
- * Верхняя строка первого экрана. Не фиксированная: на лендинге с пином
- * липкая шапка отнимает кадр у сцены. Ссылки ведут на якоря секций.
+ * Верхняя строка первого экрана. Наверху живёт в потоке героя (через .nav-slot),
+ * после 80px прокрутки — компактная фиксированная шапка с подложкой и блюром.
+ * Ссылки ведут на якоря секций. Слотовый враппер держит высоту, чтобы контент не прыгал.
  */
 import Arrow from './Arrow.astro';
 import { SITE, CONTACTS, NAV } from '../data/site';
 ---
 
-<nav class="nav" aria-label="Основная навигация">
-  <a class="nav__brand" href="#top">
-    <span class="nav__mark">{SITE.brand}</span>
-    <span class="nav__slash" aria-hidden="true"></span>
-    <span class="nav__mark-sub">{SITE.suffix}</span>
-  </a>
+<div class="nav-slot">
+  <nav class="nav" aria-label="Основная навигация">
+    <a class="nav__brand" href="#top">
+      <span class="nav__mark">{SITE.brand}</span>
+      <span class="nav__slash" aria-hidden="true"></span>
+      <span class="nav__mark-sub">{SITE.suffix}</span>
+    </a>
 
-  <ul class="nav__links">
-    {
-      NAV.map((item) => (
-        <li>
-          <a class="nav__link" href={item.href}>
-            {item.label}
-          </a>
-        </li>
-      ))
-    }
-  </ul>
+    <ul class="nav__links">
+      {
+        NAV.map((item) => (
+          <li>
+            <a class="nav__link" href={item.href}>
+              {item.label}
+            </a>
+          </li>
+        ))
+      }
+    </ul>
 
-  <a
-    class="nav__tg"
-    href={CONTACTS.telegram}
-    target="_blank"
-    rel="noopener noreferrer"
-    aria-label={`Telegram ${CONTACTS.handle}`}
-  >
-    <span class="nav__tg-text">{CONTACTS.handle}</span>
-    <Arrow size={14} />
-  </a>
-</nav>
+    <a
+      class="nav__tg"
+      href={CONTACTS.telegram}
+      target="_blank"
+      rel="noopener noreferrer"
+      aria-label={`Telegram ${CONTACTS.handle}`}
+    >
+      <span class="nav__tg-text">{CONTACTS.handle}</span>
+      <Arrow size={14} />
+    </a>
+  </nav>
+</div>
 
 <style>
+  .nav-slot {
+    flex: none;
+    height: 88px;
+  }
+
   .nav {
-    position: relative;
-    z-index: 2;
+    position: fixed;
+    top: 0;
+    right: 0;
+    left: 0;
+    z-index: 60;
     display: flex;
     align-items: center;
     gap: 40px;
     height: 88px;
+    padding-inline: max(var(--pad), calc((100% - var(--shell-max)) / 2 + var(--pad)));
     border-bottom: 1px solid color-mix(in srgb, var(--paper) 13%, transparent);
+    transition:
+      height var(--dur-2) var(--ease-out),
+      border-color var(--dur-2) var(--ease-out);
+  }
+
+  .nav::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    z-index: 0;
+    background: color-mix(in srgb, var(--ink) 70%, transparent);
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity var(--dur-2) var(--ease-out);
+  }
+
+  .nav > * {
+    position: relative;
+    z-index: 1;
+  }
+
+  .nav.is-compact {
+    height: 64px;
+    border-color: color-mix(in srgb, var(--paper) 18%, transparent);
+  }
+
+  .nav.is-compact::before {
+    opacity: 1;
+    -webkit-backdrop-filter: blur(14px) saturate(1.15);
+    backdrop-filter: blur(14px) saturate(1.15);
   }
 
   .nav__brand {
@@ -93,6 +135,9 @@ import { SITE, CONTACTS, NAV } from '../data/site';
     letter-spacing: 0.14em;
     text-transform: uppercase;
     text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    min-height: 44px;
     color: var(--fg-muted);
     transition: color var(--dur-1) var(--ease-out);
   }
@@ -111,8 +156,9 @@ import { SITE, CONTACTS, NAV } from '../data/site';
     font-size: var(--fs-mono);
     letter-spacing: 0.14em;
     text-transform: uppercase;
-    text-decoration: none;
+    min-height: 44px;
     color: var(--fg);
+    text-decoration: none;
   }
 
   .nav__tg :global(.arrow) {
@@ -140,3 +186,25 @@ import { SITE, CONTACTS, NAV } from '../data/site';
     }
   }
 </style>
+
+<script>
+  const nav = document.querySelector<HTMLElement>('nav.nav');
+  const COMPACT_AT = 80;
+
+  if (nav) {
+    let queued = 0;
+
+    const sync = (): void => {
+      queued = 0;
+      nav.classList.toggle('is-compact', window.scrollY > COMPACT_AT);
+    };
+
+    const schedule = (): void => {
+      if (queued) return;
+      queued = window.requestAnimationFrame(sync);
+    };
+
+    window.addEventListener('scroll', schedule, { passive: true });
+    sync();
+  }
+</script>

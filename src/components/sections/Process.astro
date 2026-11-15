@@ -1,7 +1,14 @@
 ---
 /**
  * Секция 05 — процесс. Источник: src/data/process.ts.
- * Четыре шага одной строкой: линия сверху связывает их в маршрут.
+ *
+ * Вертикальный таймлайн: слева волосяная линия, на ней ромб-маркер и номер шага
+ * моно, справа название и фраза. Золотая линия «растёт» по скроллу на CSS
+ * (animation-timeline: view()) — без поддержки, без JS и при reduce она просто
+ * стоит целиком. Шаги появляются по очереди: data-reveal и --i ставит
+ * src/scripts/reveal.ts на li, маркер загорается вместе с шагом.
+ *
+ * Ромб — тот же знак, что в подписях секции 03: 8–9px, поворот 45°, золото.
  */
 import { PROCESS } from '../../data/process';
 ---
@@ -13,78 +20,198 @@ import { PROCESS } from '../../data/process';
     <div class="process__wrap">
       <h2 class="h2 process__title" id="process-title">{PROCESS.title}</h2>
 
-      <ol class="process__grid">
-        {
-          PROCESS.steps.map((step) => (
-            <li class="process__step">
-              <span class="mono process__n">{step.n}</span>
-              <h3 class="process__step-title">{step.title}</h3>
-              <p class="process__line">{step.line}</p>
-            </li>
-          ))
-        }
-      </ol>
+      <div class="process__timeline">
+        <span class="process__rail" aria-hidden="true"></span>
+
+        <ol class="process__steps">
+          {
+            PROCESS.steps.map((step) => (
+              <li class="process__step">
+                <span class="process__marker" aria-hidden="true"></span>
+                <span class="mono process__n">{step.n}</span>
+                <div class="process__body">
+                  <h3 class="process__step-title">{step.title}</h3>
+                  <p class="process__line">{step.line}</p>
+                </div>
+              </li>
+            ))
+          }
+        </ol>
+      </div>
     </div>
   </div>
 </section>
 
 <style>
-  .process__title {
-    max-width: 16ch;
-    margin-bottom: 56px;
-  }
-
-  .process__grid {
+  .process__wrap {
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 0;
+    row-gap: clamp(30px, 5vw, 54px);
+  }
+
+  .process__title {
+    max-width: 16ch;
+  }
+
+  /* --- рельс: волосяная линия + золотая заливка поверх --- */
+  .process__timeline {
+    --tl: 26px;
+    position: relative;
+    padding-left: var(--tl);
+  }
+
+  .process__timeline::before,
+  .process__rail {
+    position: absolute;
+    left: 6px;
+    top: 11px;
+    bottom: 0;
+    width: 1px;
+    pointer-events: none;
+    -webkit-mask-image: linear-gradient(180deg, #000 calc(100% - 56px), transparent 100%);
+    mask-image: linear-gradient(180deg, #000 calc(100% - 56px), transparent 100%);
+  }
+
+  .process__timeline::before {
+    content: '';
+    background: var(--rule);
+  }
+
+  .process__rail {
+    background: linear-gradient(
+      180deg,
+      color-mix(in srgb, var(--accent) 62%, transparent),
+      color-mix(in srgb, var(--accent) 24%, transparent)
+    );
+    transform-origin: 50% 0;
+  }
+
+  @keyframes process-rail {
+    from {
+      transform: scaleY(0);
+    }
+    to {
+      transform: scaleY(1);
+    }
+  }
+
+  @supports (animation-timeline: view()) {
+    .process__rail {
+      animation: process-rail linear both;
+      animation-timeline: view();
+      animation-range: entry 20% cover 60%;
+    }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    .process__rail {
+      animation: none !important;
+      transform: none !important;
+    }
+  }
+
+  /* --- шаги --- */
+  .process__steps {
+    display: grid;
   }
 
   .process__step {
-    padding-block: 22px;
-    border-top: 1px solid var(--rule);
+    position: relative;
+    display: grid;
+    grid-template-columns: minmax(0, 1fr);
+    row-gap: 8px;
+    padding-bottom: clamp(28px, 4vw, 46px);
+  }
+
+  .process__step:last-child {
+    padding-bottom: 0;
+  }
+
+  /* маркер сидит на линии: центр ромба = ось 1px-линии */
+  .process__marker {
+    position: absolute;
+    top: 7px;
+    left: calc(2px - var(--tl));
+    width: 9px;
+    height: 9px;
+    border: 1px solid var(--accent);
+    background: var(--bg);
+    transform: rotate(45deg);
+  }
+
+  /* состояние до появления: признак — data-reveal, его ставит только JS */
+  .process__step[data-reveal] .process__marker {
+    opacity: 0;
+    transform: rotate(45deg) scale(0.5);
+    transition:
+      opacity var(--dur-4) var(--ease-out),
+      transform var(--dur-3) var(--ease-out);
+    transition-delay: calc(var(--i, 0) * 55ms + 60ms);
+  }
+
+  .process__step[data-reveal].is-in .process__marker {
+    opacity: 1;
+    transform: rotate(45deg) scale(1);
   }
 
   .process__n {
-    display: block;
-    margin-bottom: 10px;
     color: var(--fg-muted);
+  }
+
+  .process__body {
+    display: grid;
+    row-gap: 8px;
   }
 
   .process__step-title {
     font-family: var(--font-display);
     font-weight: 800;
-    font-size: 1.25rem;
+    font-size: clamp(1.1875rem, 1.4vw, 1.375rem);
     line-height: 1.15;
     letter-spacing: -0.02em;
-    margin-bottom: 8px;
+    color: var(--fg);
+    text-wrap: balance;
   }
 
   .process__line {
-    max-width: 30ch;
+    max-width: 46ch;
     color: var(--fg-muted);
     font-size: 0.9375rem;
     text-wrap: pretty;
   }
 
-  @media (min-width: 700px) {
-    .process__grid {
-      grid-template-columns: repeat(2, minmax(0, 1fr));
-      column-gap: var(--gutter);
-    }
-
-  }
-
-  @media (min-width: 900px) {
-    .process__grid {
-      grid-template-columns: repeat(4, minmax(0, 1fr));
+  @media (min-width: 600px) {
+    .process__timeline {
+      --tl: 34px;
     }
 
     .process__step {
-      padding-block: 26px 0;
-      padding-right: 24px;
-      border-top: 1px solid var(--rule);
+      grid-template-columns: 40px minmax(0, 1fr);
+      column-gap: 16px;
+      row-gap: 0;
+      align-items: baseline;
     }
 
+    .process__marker {
+      top: 6px;
+    }
+  }
+
+  @media (min-width: 900px) {
+    .process__wrap {
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      column-gap: var(--gutter);
+      row-gap: 0;
+    }
+
+    .process__title {
+      grid-column: 1 / 6;
+      padding-right: 32px;
+    }
+
+    .process__timeline {
+      grid-column: 6 / 13;
+      padding-top: 4px;
+    }
   }
 </style>

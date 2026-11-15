@@ -1,7 +1,11 @@
 ---
 /**
  * Секция 02 — подход. Источник: src/data/approach.ts.
- * Две колонки: утверждение слева, два абзаца справа. Номер секции — в левом поле.
+ *
+ * На широком — три колонки: утверждение, затем два абзаца слева направо.
+ * Разделители — волоски в зазорах сетки (::before в центре gap), колонка под
+ * курсором получает мягкую подсветку фоном. Номера абзацев — счётчик CSS:
+ * в разметке и копирайте лишних цифр нет.
  */
 import { APPROACH } from '../../data/approach';
 ---
@@ -11,11 +15,15 @@ import { APPROACH } from '../../data/approach';
     <div class="sec__num">{APPROACH.n}</div>
 
     <div class="approach">
-      <h2 class="h2 approach__title" id="approach-title">{APPROACH.title}</h2>
-
-      <div class="approach__text">
-        {APPROACH.paragraphs.map((text) => <p>{text}</p>)}
+      <div class="approach__col">
+        <h2 class="h2 approach__title" id="approach-title">{APPROACH.title}</h2>
       </div>
+
+      {APPROACH.paragraphs.map((text) => (
+        <div class="approach__col approach__col--item">
+          <p class="approach__p">{text}</p>
+        </div>
+      ))}
 
       <p class="mono approach__caption">{APPROACH.caption}</p>
     </div>
@@ -24,28 +32,85 @@ import { APPROACH } from '../../data/approach';
 
 <style>
   .approach {
+    --approach-gap: clamp(22px, 2.6vw, 40px);
+
     display: grid;
     grid-template-columns: minmax(0, 1fr);
-    gap: 32px;
+    row-gap: 40px;
+    counter-reset: approach-item;
+  }
+
+  /* колонка — точка отсчёта для волоска и подсветки */
+  .approach__col {
+    position: relative;
+    isolation: isolate;
   }
 
   .approach__title {
     max-width: 12ch;
   }
 
-  .approach__text {
-    display: grid;
-    gap: 18px;
-    max-width: 46ch;
-  }
-
-  .approach__text p {
+  .approach__p {
     color: var(--fg-muted);
     font-size: var(--fs-body);
     text-wrap: pretty;
   }
 
+  /* номер абзаца: моно, вторичный цвет, без лишних узлов в разметке */
+  .approach__col--item {
+    counter-increment: approach-item;
+  }
+
+  .approach__p::before {
+    content: counter(approach-item, decimal-leading-zero);
+    display: block;
+    margin-bottom: 16px;
+    font-family: var(--font-mono);
+    font-size: var(--fs-mono);
+    font-weight: 500;
+    letter-spacing: 0.14em;
+    color: var(--fg-muted);
+    font-variant-numeric: tabular-nums;
+  }
+
+  /* вертикальный на широком, горизонтальный в стопке */
+  .approach__col + .approach__col::before {
+    content: '';
+    position: absolute;
+    top: -20px;
+    right: 0;
+    left: 0;
+    height: 1px;
+    background: linear-gradient(90deg, transparent, var(--rule) 18%, var(--rule) 82%, transparent);
+  }
+
+  /* подсветка колонки: тише чернил, гаснет на краях */
+  @media (hover: hover) and (pointer: fine) {
+    .approach__col::after {
+      content: '';
+      position: absolute;
+      z-index: -1;
+      inset: -26px -16px;
+      border-radius: var(--radius);
+      background:
+        radial-gradient(
+          120% 92% at 0% 0%,
+          color-mix(in srgb, var(--accent) 8%, transparent),
+          transparent 64%
+        ),
+        linear-gradient(180deg, color-mix(in srgb, var(--paper) 6%, transparent), transparent 82%);
+      opacity: 0;
+      transition: opacity var(--dur-3) var(--ease-out);
+      pointer-events: none;
+    }
+
+    .approach__col:hover::after {
+      opacity: 1;
+    }
+  }
+
   .approach__caption {
+    margin-top: 24px;
     padding-top: 22px;
     border-top: 1px solid var(--rule);
     color: var(--fg-muted);
@@ -53,24 +118,25 @@ import { APPROACH } from '../../data/approach';
 
   @media (min-width: 900px) {
     .approach {
-      grid-template-columns: repeat(12, minmax(0, 1fr));
-      column-gap: var(--gutter);
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      column-gap: var(--approach-gap);
       row-gap: 0;
     }
 
-    .approach__title {
-      grid-column: 1 / 7;
-      padding-right: 40px;
-    }
-
-    .approach__text {
-      grid-column: 8 / 13;
-      padding-top: 6px;
+    /* волосок встаёт в середину зазора между колонками */
+    .approach__col + .approach__col::before {
+      top: -8px;
+      right: auto;
+      bottom: -8px;
+      left: calc(var(--approach-gap) / -2);
+      width: 1px;
+      height: auto;
+      background: linear-gradient(180deg, transparent, var(--rule) 18%, var(--rule) 82%, transparent);
     }
 
     .approach__caption {
       grid-column: 1 / -1;
-      margin-top: 96px;
+      margin-top: 72px;
     }
   }
 </style>
