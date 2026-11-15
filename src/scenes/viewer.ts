@@ -203,6 +203,7 @@ export function initViewer(root: HTMLElement) {
   let ready = false;
   let progress = 0;
   let exploded = false;
+  let anim: gsap.core.Tween | null = null;
 
   const size = { w: 1, h: 1 };
   const tmp = new THREE.Vector3();
@@ -323,24 +324,32 @@ export function initViewer(root: HTMLElement) {
     shadow.scale.setScalar(0.72 + 0.5 * p);
   };
 
-  const setExploded = (next: boolean) => {
+  // snap — выставить состояние сразу, без анимации: для ?explode из адреса и
+  // для prefers-reduced-motion. Тяжёлая загрузка глушит тикер GSAP (lagSmoothing),
+  // и твин, запущенный до неё, отстаёт на секунды.
+  const setExploded = (next: boolean, snap = false) => {
     exploded = next;
     btn.textContent = next ? 'Собрать' : 'Разобрать';
     btn.setAttribute('aria-pressed', String(next));
     // в разобранном виде машина должна стоять неподвижно — иначе подписи уезжают
     if (next) controls.autoRotate = false;
 
-    const state = { v: progress };
-    gsap.killTweensOf(state);
-    gsap.to(state, {
-      v: next ? 1 : 0,
-      duration: reduce ? 0 : 2.4,
-      ease: 'none',
-      onUpdate: () => {
-        progress = state.v;
-        apply(progress);
-      },
-    });
+    anim?.kill();
+    if (snap || reduce) {
+      progress = next ? 1 : 0;
+      apply(progress);
+    } else {
+      const state = { v: progress };
+      anim = gsap.to(state, {
+        v: next ? 1 : 0,
+        duration: 2.4,
+        ease: 'none',
+        onUpdate: () => {
+          progress = state.v;
+          apply(progress);
+        },
+      });
+    }
 
     // Отъезжаем вместе с разборкой, но не отбираем управление у мыши.
     const dir = camera.position.clone().sub(controls.target).normalize();
@@ -371,7 +380,7 @@ export function initViewer(root: HTMLElement) {
   }
 
   // ?explode в адресе — сразу открыть разобранную машину (для показа и проверок).
-  if (new URLSearchParams(location.search).has('explode')) setExploded(true);
+  if (new URLSearchParams(location.search).has('explode')) setExploded(true, true);
 
   // --- подсветка ------------------------------------------------------------
 
